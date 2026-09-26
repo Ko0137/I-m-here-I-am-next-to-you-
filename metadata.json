@@ -1,0 +1,6 @@
+{
+  "name": "Я рядом",
+  "description": "Telegram Mini App совместного просмотра фильмов и сериалов",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
