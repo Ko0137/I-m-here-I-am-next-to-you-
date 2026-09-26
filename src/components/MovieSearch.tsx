@@ -37,7 +37,7 @@ export const MovieSearch: React.FC<MovieSearchProps> = ({ onSelectMovie, onClose
         <div className="p-4 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center space-x-2 text-white font-bold text-lg">
             <Film className="w-5 h-5 text-indigo-400" />
-            <span>Select Movie or Series</span>
+            <span>Выберите фильм или сериал</span>
           </div>
           <button
             onClick={onClose}
@@ -55,7 +55,7 @@ export const MovieSearch: React.FC<MovieSearchProps> = ({ onSelectMovie, onClose
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search movies, series, animation..."
+              placeholder="Поиск фильмов, сериалов, аниме..."
               className="w-full bg-slate-900 border border-slate-700/80 rounded-xl pl-10 pr-4 py-2.5 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-indigo-500 transition-colors"
               autoFocus
             />

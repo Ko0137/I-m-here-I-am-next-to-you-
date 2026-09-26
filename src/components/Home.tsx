@@ -46,7 +46,7 @@ export const Home: React.FC<HomeProps> = ({ onCreateRoom, onJoinRoom, onSelectMo
                 className="px-6 py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm shadow-xl shadow-indigo-600/30 flex items-center justify-center space-x-2 transition-all transform hover:scale-[1.02]"
               >
                 <Plus className="w-4 h-4" />
-                <span>Create Room</span>
+                <span>Создать комнату</span>
               </button>
 
               <form onSubmit={handleJoin} className="flex items-center space-x-2">
@@ -54,14 +54,14 @@ export const Home: React.FC<HomeProps> = ({ onCreateRoom, onJoinRoom, onSelectMo
                   type="text"
                   value={inputRoomId}
                   onChange={(e) => setInputRoomId(e.target.value)}
-                  placeholder="Enter Room Code"
-                  className="bg-slate-900 border border-slate-700/80 rounded-2xl px-4 py-3 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-indigo-500 transition-colors uppercase tracking-wider font-mono w-44"
+                  placeholder="Код комнаты"
+                  className="bg-slate-900 border border-slate-700/80 rounded-2xl px-4 py-3 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-indigo-500 transition-colors uppercase tracking-wider font-mono w-40"
                 />
                 <button
                   type="submit"
                   className="px-5 py-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-bold text-sm transition-all"
                 >
-                  Join
+                  Войти
                 </button>
               </form>
             </div>
@@ -73,7 +73,7 @@ export const Home: React.FC<HomeProps> = ({ onCreateRoom, onJoinRoom, onSelectMo
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-bold flex items-center space-x-2">
               <Compass className="w-5 h-5 text-indigo-400" />
-              <span>Popular Movies & Streams</span>
+              <span>Популярные фильмы и потоки</span>
             </h2>
           </div>
 
@@ -83,7 +83,7 @@ export const Home: React.FC<HomeProps> = ({ onCreateRoom, onJoinRoom, onSelectMo
                 id: 'big-buck-bunny',
                 title: 'Big Buck Bunny',
                 year: 2008,
-                genre: 'Animation',
+                genre: 'Анимация',
                 poster: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Big_Buck_Bunny_poster_big.jpg/800px-Big_Buck_Bunny_poster_big.jpg',
                 streamUrl: 'https://test-streams.mux.dev/x36h264/x36h264.m3u8'
               },
@@ -91,7 +91,7 @@ export const Home: React.FC<HomeProps> = ({ onCreateRoom, onJoinRoom, onSelectMo
                 id: 'tears-of-steel',
                 title: 'Tears of Steel',
                 year: 2012,
-                genre: 'Sci-Fi',
+                genre: 'Фантастика',
                 poster: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1b/Tears_of_steel_poster.jpg/800px-Tears_of_steel_poster.jpg',
                 streamUrl: 'https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8'
               },
@@ -99,7 +99,7 @@ export const Home: React.FC<HomeProps> = ({ onCreateRoom, onJoinRoom, onSelectMo
                 id: 'sintel',
                 title: 'Sintel',
                 year: 2010,
-                genre: 'Fantasy',
+                genre: 'Фэнтези',
                 poster: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/Sintel_poster.jpg/800px-Sintel_poster.jpg',
                 streamUrl: 'https://bitmovin-a.akamaihd.net/content/sintel/hls/playlist.m3u8'
               }
@@ -136,7 +136,7 @@ export const Home: React.FC<HomeProps> = ({ onCreateRoom, onJoinRoom, onSelectMo
                   </div>
                   <span className="text-xs text-slate-400 mt-2 flex items-center space-x-1">
                     <Tv className="w-3.5 h-3.5" />
-                    <span>Click to start room</span>
+                    <span>Нажмите для создания комнаты</span>
                   </span>
                 </div>
               </div>
