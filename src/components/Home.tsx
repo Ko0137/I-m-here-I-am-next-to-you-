@@ -11,13 +11,22 @@ interface HomeProps {
 export const Home: React.FC<HomeProps> = ({ onCreateRoom, onJoinRoom, onSelectMovie }) => {
   const [inputRoomId, setInputRoomId] = useState('');
 
+  const triggerHaptic = () => {
+    const twa = (window as any).Telegram?.WebApp;
+    if (twa?.HapticFeedback) {
+      twa.HapticFeedback.impactOccurred('medium');
+    }
+  };
+
   const handleCreate = () => {
+    triggerHaptic();
     const randomId = Math.random().toString(36).substring(2, 8).toUpperCase();
     onCreateRoom(randomId);
   };
 
   const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();
+    triggerHaptic();
     if (!inputRoomId.trim()) return;
     onJoinRoom(inputRoomId.trim().toUpperCase());
   };
