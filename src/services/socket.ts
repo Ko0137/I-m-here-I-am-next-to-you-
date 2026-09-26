@@ -5,9 +5,14 @@ class SocketService {
 
   connect() {
     if (!this.socket) {
-      this.socket = io({
+      const serverUrl = typeof window !== 'undefined' ? window.location.origin : undefined;
+      this.socket = io(serverUrl || '', {
         path: '/socket.io',
-        transports: ['websocket', 'polling']
+        transports: ['websocket', 'polling'],
+        secure: true,
+        reconnection: true,
+        reconnectionAttempts: 10,
+        reconnectionDelay: 1000
       });
 
       this.socket.on('connect', () => {
