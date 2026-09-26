@@ -51,8 +51,16 @@ export const Home: React.FC<HomeProps> = ({ onCreateRoom, onJoinRoom, onSelectMo
 
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center space-y-3 sm:space-y-0 sm:space-x-3 pt-2">
               <button
-                onClick={handleCreate}
-                className="px-6 py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm shadow-xl shadow-indigo-600/30 flex items-center justify-center space-x-2 transition-all transform hover:scale-[1.02]"
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleCreate();
+                }}
+                onTouchEnd={(e) => {
+                  e.preventDefault();
+                  handleCreate();
+                }}
+                className="px-6 py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-bold text-sm shadow-xl shadow-indigo-600/30 flex items-center justify-center space-x-2 transition-all cursor-pointer select-none"
               >
                 <Plus className="w-4 h-4" />
                 <span>Создать комнату</span>
@@ -68,7 +76,7 @@ export const Home: React.FC<HomeProps> = ({ onCreateRoom, onJoinRoom, onSelectMo
                 />
                 <button
                   type="submit"
-                  className="px-5 py-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-bold text-sm transition-all"
+                  className="px-5 py-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 active:bg-slate-600 border border-slate-700 text-white font-bold text-sm transition-all cursor-pointer select-none"
                 >
                   Войти
                 </button>
@@ -115,44 +123,51 @@ export const Home: React.FC<HomeProps> = ({ onCreateRoom, onJoinRoom, onSelectMo
                 streamUrl: 'https://bitmovin-a.akamaihd.net/content/sintel/hls/playlist.m3u8',
                 sourceSite: 'https://www.youtube.com'
               }
-            ].map((m) => (
-              <div
-                key={m.id}
-                onClick={() => {
-                  const randomId = Math.random().toString(36).substring(2, 8).toUpperCase();
-                  onCreateRoom(randomId);
-                  onSelectMovie(m as Movie);
-                }}
-                className="group bg-slate-900/80 hover:bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden cursor-pointer transition-all hover:border-indigo-500/50 shadow-lg flex flex-col"
-              >
-                <div className="aspect-[16/9] overflow-hidden relative bg-slate-800">
-                  <img
-                    src={m.poster}
-                    alt={m.title}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                  />
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                    <div className="w-10 h-10 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-lg">
-                      <Play className="w-4 h-4 fill-white ml-0.5" />
+            ].map((m) => {
+              const handleCardAction = (e: React.SyntheticEvent) => {
+                e.preventDefault();
+                triggerHaptic();
+                const randomId = Math.random().toString(36).substring(2, 8).toUpperCase();
+                onCreateRoom(randomId);
+                onSelectMovie(m as Movie);
+              };
+
+              return (
+                <div
+                  key={m.id}
+                  onClick={handleCardAction}
+                  onTouchEnd={handleCardAction}
+                  className="group bg-slate-900/80 hover:bg-slate-900 active:bg-slate-800 border border-slate-800 rounded-2xl overflow-hidden cursor-pointer transition-all hover:border-indigo-500/50 shadow-lg flex flex-col select-none"
+                >
+                  <div className="aspect-[16/9] overflow-hidden relative bg-slate-800">
+                    <img
+                      src={m.poster}
+                      alt={m.title}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 pointer-events-none"
+                    />
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <div className="w-10 h-10 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-lg">
+                        <Play className="w-4 h-4 fill-white ml-0.5" />
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div className="p-4 flex-1 flex flex-col justify-between">
-                  <div>
-                    <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded font-medium">
-                      {m.genre}
+                  <div className="p-4 flex-1 flex flex-col justify-between">
+                    <div>
+                      <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded font-medium">
+                        {m.genre}
+                      </span>
+                      <h3 className="font-bold text-white text-sm mt-1 group-hover:text-indigo-400 transition-colors">
+                        {m.title}
+                      </h3>
+                    </div>
+                    <span className="text-xs text-slate-400 mt-2 flex items-center space-x-1">
+                      <Tv className="w-3.5 h-3.5" />
+                      <span>Выбрать и смотреть вместе</span>
                     </span>
-                    <h3 className="font-bold text-white text-sm mt-1 group-hover:text-indigo-400 transition-colors">
-                      {m.title}
-                    </h3>
                   </div>
-                  <span className="text-xs text-slate-400 mt-2 flex items-center space-x-1">
-                    <Tv className="w-3.5 h-3.5" />
-                    <span>Выбрать и смотреть вместе</span>
-                  </span>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>
