@@ -9,7 +9,11 @@ import { ChatPanel } from './components/ChatPanel';
 import axios from 'axios';
 
 export default function App() {
-  const [user, setUser] = useState<User | null>(null);
+  // Initialize user immediately with fallback so buttons never block
+  const [user, setUser] = useState<User>({
+    id: 'tg_' + Math.floor(Math.random() * 100000),
+    name: 'Telegram User'
+  });
   const [room, setRoom] = useState<RoomState | null>(null);
   const [socket, setSocket] = useState<any>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -38,23 +42,8 @@ export default function App() {
               });
             }
           })
-          .catch(() => {
-            setUser({
-              id: 'guest_' + Math.floor(Math.random() * 10000),
-              name: 'Telegram Guest'
-            });
-          });
-      } else {
-        setUser({
-          id: 'guest_' + Math.floor(Math.random() * 10000),
-          name: 'Web Guest'
-        });
+          .catch(() => {});
       }
-    } else {
-      setUser({
-        id: 'guest_' + Math.floor(Math.random() * 10000),
-        name: 'Browser User'
-      });
     }
 
     // Connect socket
