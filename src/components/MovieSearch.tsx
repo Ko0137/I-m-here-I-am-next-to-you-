@@ -10,6 +10,7 @@ interface MovieSearchProps {
 
 export const MovieSearch: React.FC<MovieSearchProps> = ({ onSelectMovie, onClose }) => {
   const [query, setQuery] = useState('');
+  const [selectedSource, setSelectedSource] = useState('all');
   const [movies, setMovies] = useState<Movie[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -18,7 +19,11 @@ export const MovieSearch: React.FC<MovieSearchProps> = ({ onSelectMovie, onClose
       setLoading(true);
       try {
         const res = await axios.get(`/api/search?q=${encodeURIComponent(query)}`);
-        setMovies(res.data.results || []);
+        let fetched = res.data.results || [];
+        if (selectedSource !== 'all') {
+          fetched = fetched.filter((m: Movie) => m.title.toLowerCase().includes(selectedSource));
+        }
+        setMovies(fetched);
       } catch (err) {
         console.error('Failed to search movies:', err);
       } finally {
@@ -28,7 +33,7 @@ export const MovieSearch: React.FC<MovieSearchProps> = ({ onSelectMovie, onClose
 
     const timer = setTimeout(fetchMovies, 300);
     return () => clearTimeout(timer);
-  }, [query]);
+  }, [query, selectedSource]);
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -47,8 +52,8 @@ export const MovieSearch: React.FC<MovieSearchProps> = ({ onSelectMovie, onClose
           </button>
         </div>
 
-        {/* Search input */}
-        <div className="p-4 border-b border-slate-800 bg-slate-950/50">
+        {/* Search input & Source Tabs */}
+        <div className="p-4 border-b border-slate-800 bg-slate-950/50 space-y-3">
           <div className="relative">
             <Search className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
             <input
@@ -59,6 +64,28 @@ export const MovieSearch: React.FC<MovieSearchProps> = ({ onSelectMovie, onClose
               className="w-full bg-slate-900 border border-slate-700/80 rounded-xl pl-10 pr-4 py-2.5 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-indigo-500 transition-colors"
               autoFocus
             />
+          </div>
+
+          <div className="flex items-center space-x-2 overflow-x-auto pb-1">
+            <span className="text-xs text-slate-400 shrink-0 font-medium">Источник:</span>
+            {[
+              { id: 'all', label: 'Все каталоги' },
+              { id: 'kinogo', label: 'Kinogo (kinogo.mu)' },
+              { id: 'lordfilm', label: 'Lordfilm (lordfilm.md)' },
+              { id: 'youtube', label: 'YouTube' }
+            ].map((source) => (
+              <button
+                key={source.id}
+                onClick={() => setSelectedSource(source.id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${
+                  selectedSource === source.id
+                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                    : 'bg-slate-800/80 hover:bg-slate-800 text-slate-300 border border-slate-700/60'
+                }`}
+              >
+                {source.label}
+              </button>
+            ))}
           </div>
         </div>
 

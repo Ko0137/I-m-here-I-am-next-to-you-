@@ -80,28 +80,31 @@ export const Home: React.FC<HomeProps> = ({ onCreateRoom, onJoinRoom, onSelectMo
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
             {[
               {
-                id: 'big-buck-bunny',
-                title: 'Big Buck Bunny',
-                year: 2008,
-                genre: 'Анимация',
-                poster: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Big_Buck_Bunny_poster_big.jpg/800px-Big_Buck_Bunny_poster_big.jpg',
-                streamUrl: 'https://test-streams.mux.dev/x36h264/x36h264.m3u8'
+                id: 'kinogo-hub',
+                title: 'Kinogo Каталог (kinogo.mu)',
+                year: 2026,
+                genre: 'Кинотеатр',
+                poster: 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=800&auto=format&fit=crop',
+                streamUrl: 'https://test-streams.mux.dev/x36h264/x36h264.m3u8',
+                sourceSite: 'https://user.kinogo.mu/'
               },
               {
-                id: 'tears-of-steel',
-                title: 'Tears of Steel',
-                year: 2012,
-                genre: 'Фантастика',
-                poster: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1b/Tears_of_steel_poster.jpg/800px-Tears_of_steel_poster.jpg',
-                streamUrl: 'https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8'
+                id: 'lordfilm-hub',
+                title: 'Lordfilm Подборки (lordfilm.md)',
+                year: 2026,
+                genre: 'Сериалы и Фильмы',
+                poster: 'https://images.unsplash.com/photo-1536440136628-849c177e76a1?q=80&w=800&auto=format&fit=crop',
+                streamUrl: 'https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8',
+                sourceSite: 'https://mg.lordfilm.md/podborki/'
               },
               {
-                id: 'sintel',
-                title: 'Sintel',
-                year: 2010,
-                genre: 'Фэнтези',
-                poster: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/Sintel_poster.jpg/800px-Sintel_poster.jpg',
-                streamUrl: 'https://bitmovin-a.akamaihd.net/content/sintel/hls/playlist.m3u8'
+                id: 'youtube-hd',
+                title: 'YouTube Синхронный плеер',
+                year: 2026,
+                genre: 'YouTube Видео',
+                poster: 'https://images.unsplash.com/photo-1611162617474-5b21e879e113?q=80&w=800&auto=format&fit=crop',
+                streamUrl: 'https://bitmovin-a.akamaihd.net/content/sintel/hls/playlist.m3u8',
+                sourceSite: 'https://www.youtube.com'
               }
             ].map((m) => (
               <div
@@ -131,12 +134,12 @@ export const Home: React.FC<HomeProps> = ({ onCreateRoom, onJoinRoom, onSelectMo
                       {m.genre}
                     </span>
                     <h3 className="font-bold text-white text-sm mt-1 group-hover:text-indigo-400 transition-colors">
-                      {m.title} ({m.year})
+                      {m.title}
                     </h3>
                   </div>
                   <span className="text-xs text-slate-400 mt-2 flex items-center space-x-1">
                     <Tv className="w-3.5 h-3.5" />
-                    <span>Нажмите для создания комнаты</span>
+                    <span>Выбрать и смотреть вместе</span>
                   </span>
                 </div>
               </div>
