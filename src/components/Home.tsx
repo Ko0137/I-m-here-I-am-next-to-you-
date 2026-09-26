@@ -3,33 +3,86 @@ import { Film, Users, Play, Plus, Compass, Sparkles, Tv } from 'lucide-react';
 import { Movie } from '../types';
 
 interface HomeProps {
-  onCreateRoom: (roomId: string) => void;
+  onCreateRoom: (roomId: string, selectedMovie?: Movie) => void;
   onJoinRoom: (roomId: string) => void;
-  onSelectMovie: (movie: Movie) => void;
 }
 
-export const Home: React.FC<HomeProps> = ({ onCreateRoom, onJoinRoom, onSelectMovie }) => {
+export const Home: React.FC<HomeProps> = ({ onCreateRoom, onJoinRoom }) => {
   const [inputRoomId, setInputRoomId] = useState('');
 
   const triggerHaptic = () => {
-    const twa = (window as any).Telegram?.WebApp;
-    if (twa?.HapticFeedback) {
-      twa.HapticFeedback.impactOccurred('medium');
+    try {
+      const twa = (window as any).Telegram?.WebApp;
+      if (twa?.HapticFeedback) {
+        twa.HapticFeedback.impactOccurred('medium');
+      }
+    } catch (e) {
+      // Ignore haptic errors on non-Telegram browsers
     }
   };
 
-  const handleCreate = () => {
+  const handleCreate = (e?: React.SyntheticEvent, movie?: Movie) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     triggerHaptic();
     const randomId = Math.random().toString(36).substring(2, 8).toUpperCase();
-    onCreateRoom(randomId);
+    onCreateRoom(randomId, movie);
   };
 
   const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     triggerHaptic();
     if (!inputRoomId.trim()) return;
     onJoinRoom(inputRoomId.trim().toUpperCase());
   };
+
+  const sampleMovies: Movie[] = [
+    {
+      id: 'kinogo-hub',
+      title: 'Kinogo Каталог (kinogo.mu)',
+      originalTitle: 'Kinogo HD',
+      year: 2026,
+      poster: 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=800&auto=format&fit=crop',
+      description: 'Совместный просмотр из каталога Kinogo (kinogo.mu). Видео синхронизировано для всех.',
+      rating: 8.7,
+      genres: ['Кинотеатр', 'Фильмы', 'Новинки'],
+      streamUrl: 'https://test-streams.mux.dev/x36h264/x36h264.m3u8',
+      episodes: [
+        { season: 1, episode: 1, title: 'Поток HD 1080p', streamUrl: 'https://test-streams.mux.dev/x36h264/x36h264.m3u8' }
+      ]
+    },
+    {
+      id: 'lordfilm-hub',
+      title: 'Lordfilm Подборки (lordfilm.md)',
+      originalTitle: 'Lordfilm Collections',
+      year: 2026,
+      poster: 'https://images.unsplash.com/photo-1536440136628-849c177e76a1?q=80&w=800&auto=format&fit=crop',
+      description: 'Лучшие подборки сериалов и фильмов с Lordfilm (lordfilm.md) для совместного просмотра.',
+      rating: 8.9,
+      genres: ['Сериалы', 'Подборки', 'HD'],
+      streamUrl: 'https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8',
+      episodes: [
+        { season: 1, episode: 1, title: 'Серия 1: Начало', streamUrl: 'https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8' }
+      ]
+    },
+    {
+      id: 'youtube-hd',
+      title: 'YouTube Синхронный плеер',
+      originalTitle: 'YouTube Stream',
+      year: 2026,
+      poster: 'https://images.unsplash.com/photo-1611162617474-5b21e879e113?q=80&w=800&auto=format&fit=crop',
+      description: 'Синхронный просмотр видео и стримов с YouTube на всех телефонах участников.',
+      rating: 9.0,
+      genres: ['YouTube', 'Стримы', 'Блогеры'],
+      streamUrl: 'https://bitmovin-a.akamaihd.net/content/sintel/hls/playlist.m3u8',
+      episodes: [
+        { season: 1, episode: 1, title: 'YouTube HD Stream', streamUrl: 'https://bitmovin-a.akamaihd.net/content/sintel/hls/playlist.m3u8' }
+      ]
+    }
+  ];
 
   return (
     <div className="flex-1 bg-slate-950 text-white overflow-y-auto p-4 md:p-8">
@@ -52,14 +105,8 @@ export const Home: React.FC<HomeProps> = ({ onCreateRoom, onJoinRoom, onSelectMo
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center space-y-3 sm:space-y-0 sm:space-x-3 pt-2">
               <button
                 type="button"
-                onClick={(e) => {
-                  e.preventDefault();
-                  handleCreate();
-                }}
-                onTouchEnd={(e) => {
-                  e.preventDefault();
-                  handleCreate();
-                }}
+                onClick={(e) => handleCreate(e)}
+                onTouchEnd={(e) => handleCreate(e)}
                 className="px-6 py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-bold text-sm shadow-xl shadow-indigo-600/30 flex items-center justify-center space-x-2 transition-all cursor-pointer select-none"
               >
                 <Plus className="w-4 h-4" />
@@ -71,11 +118,13 @@ export const Home: React.FC<HomeProps> = ({ onCreateRoom, onJoinRoom, onSelectMo
                   type="text"
                   value={inputRoomId}
                   onChange={(e) => setInputRoomId(e.target.value)}
-                  placeholder="Код комнаты"
+                  placeholder="КОД КОМНАТЫ"
                   className="bg-slate-900 border border-slate-700/80 rounded-2xl px-4 py-3 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-indigo-500 transition-colors uppercase tracking-wider font-mono w-40"
                 />
                 <button
                   type="submit"
+                  onClick={handleJoin}
+                  onTouchEnd={handleJoin}
                   className="px-5 py-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 active:bg-slate-600 border border-slate-700 text-white font-bold text-sm transition-all cursor-pointer select-none"
                 >
                   Войти
@@ -85,7 +134,7 @@ export const Home: React.FC<HomeProps> = ({ onCreateRoom, onJoinRoom, onSelectMo
           </div>
         </div>
 
-        {/* Quick Sample Movies */}
+        {/* Quick Sample Movies / Sources */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-bold flex items-center space-x-2">
@@ -95,54 +144,24 @@ export const Home: React.FC<HomeProps> = ({ onCreateRoom, onJoinRoom, onSelectMo
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-            {[
-              {
-                id: 'kinogo-hub',
-                title: 'Kinogo Каталог (kinogo.mu)',
-                year: 2026,
-                genre: 'Кинотеатр',
-                poster: 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=800&auto=format&fit=crop',
-                streamUrl: 'https://test-streams.mux.dev/x36h264/x36h264.m3u8',
-                sourceSite: 'https://user.kinogo.mu/'
-              },
-              {
-                id: 'lordfilm-hub',
-                title: 'Lordfilm Подборки (lordfilm.md)',
-                year: 2026,
-                genre: 'Сериалы и Фильмы',
-                poster: 'https://images.unsplash.com/photo-1536440136628-849c177e76a1?q=80&w=800&auto=format&fit=crop',
-                streamUrl: 'https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8',
-                sourceSite: 'https://mg.lordfilm.md/podborki/'
-              },
-              {
-                id: 'youtube-hd',
-                title: 'YouTube Синхронный плеер',
-                year: 2026,
-                genre: 'YouTube Видео',
-                poster: 'https://images.unsplash.com/photo-1611162617474-5b21e879e113?q=80&w=800&auto=format&fit=crop',
-                streamUrl: 'https://bitmovin-a.akamaihd.net/content/sintel/hls/playlist.m3u8',
-                sourceSite: 'https://www.youtube.com'
-              }
-            ].map((m) => {
-              const handleCardAction = (e: React.SyntheticEvent) => {
+            {sampleMovies.map((movie) => {
+              const handleCardClick = (e: React.SyntheticEvent) => {
+                e.preventDefault();
                 e.stopPropagation();
-                triggerHaptic();
-                const randomId = Math.random().toString(36).substring(2, 8).toUpperCase();
-                onSelectMovie(m as Movie);
-                onCreateRoom(randomId);
+                handleCreate(undefined, movie);
               };
 
               return (
                 <div
-                  key={m.id}
-                  onClick={handleCardAction}
-                  onTouchEnd={handleCardAction}
+                  key={movie.id}
+                  onClick={handleCardClick}
+                  onTouchEnd={handleCardClick}
                   className="group bg-slate-900/80 hover:bg-slate-900 active:bg-slate-800 border border-slate-800 rounded-2xl overflow-hidden cursor-pointer transition-all hover:border-indigo-500/50 shadow-lg flex flex-col select-none"
                 >
                   <div className="aspect-[16/9] overflow-hidden relative bg-slate-800">
                     <img
-                      src={m.poster}
-                      alt={m.title}
+                      src={movie.poster}
+                      alt={movie.title}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 pointer-events-none"
                     />
                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
@@ -154,10 +173,10 @@ export const Home: React.FC<HomeProps> = ({ onCreateRoom, onJoinRoom, onSelectMo
                   <div className="p-4 flex-1 flex flex-col justify-between">
                     <div>
                       <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded font-medium">
-                        {m.genre}
+                        {movie.genres?.[0] || 'Кино'}
                       </span>
                       <h3 className="font-bold text-white text-sm mt-1 group-hover:text-indigo-400 transition-colors">
-                        {m.title}
+                        {movie.title}
                       </h3>
                     </div>
                     <span className="text-xs text-slate-400 mt-2 flex items-center space-x-1">

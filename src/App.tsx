@@ -108,14 +108,13 @@ export default function App() {
       <main className="flex-1 flex flex-col relative overflow-hidden">
         {!room ? (
           <Home
-            onCreateRoom={handleCreateRoom}
-            onJoinRoom={handleJoinRoom}
-            onSelectMovie={(movie) => {
-              // Wait until room is created then set movie
-              setTimeout(() => {
-                if (room) handleSelectMovie(movie);
-              }, 300);
+            onCreateRoom={(roomId, movie) => {
+              handleCreateRoom(roomId);
+              if (movie) {
+                setTimeout(() => handleSelectMovie(movie), 300);
+              }
             }}
+            onJoinRoom={handleJoinRoom}
           />
         ) : (
           <div className="flex-1 flex relative overflow-hidden">
