@@ -125,11 +125,11 @@ export const Home: React.FC<HomeProps> = ({ onCreateRoom, onJoinRoom, onSelectMo
               }
             ].map((m) => {
               const handleCardAction = (e: React.SyntheticEvent) => {
-                e.preventDefault();
+                e.stopPropagation();
                 triggerHaptic();
                 const randomId = Math.random().toString(36).substring(2, 8).toUpperCase();
-                onCreateRoom(randomId);
                 onSelectMovie(m as Movie);
+                onCreateRoom(randomId);
               };
 
               return (
