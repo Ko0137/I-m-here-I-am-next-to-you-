@@ -26,21 +26,21 @@ import { User, RoomState, MovieItem, ChatMessage } from './types';
 import { socketService } from './services/socket';
 
 const POPULAR_SITES = [
-  { name: 'Kinogo (kinogo.mu)', url: 'https://user.kinogo.mu' },
-  { name: 'Lordfilm (lordfilm.md)', url: 'https://mg.lordfilm.md' },
-  { name: 'YouTube', url: 'https://www.youtube.com' },
-  { name: 'Google Поиск', url: 'https://www.google.com' }
+  { name: 'Google Поиск', url: 'https://www.google.com' },
+  { name: 'Kinogo HD', url: 'https://user.kinogo.mu' },
+  { name: 'Lordfilm', url: 'https://mg.lordfilm.md' },
+  { name: 'YouTube', url: 'https://www.youtube.com' }
 ];
 
 export default function App() {
   const [user, setUser] = useState<User>({
     id: 'u_' + Math.floor(Math.random() * 100000),
-    name: 'Пользователь'
+    name: 'Константин'
   });
   const [room, setRoom] = useState<RoomState | null>(null);
   const [socket, setSocket] = useState<any>(null);
-  const [browserUrl, setBrowserUrl] = useState('https://user.kinogo.mu');
-  const [inputUrl, setInputUrl] = useState('https://user.kinogo.mu');
+  const [browserUrl, setBrowserUrl] = useState('https://www.google.com');
+  const [inputUrl, setInputUrl] = useState('https://www.google.com');
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatText, setChatText] = useState('');
   const [isMuted, setIsMuted] = useState(false);
@@ -120,7 +120,7 @@ export default function App() {
       }
     });
 
-    // Check direct room in query params
+    // Check direct room parameter
     const qRoom = new URLSearchParams(window.location.search).get('room');
     if (qRoom) {
       setJoinCode(qRoom);
@@ -220,17 +220,78 @@ export default function App() {
     }
   }, [room?.chat, isChatOpen]);
 
+  // Instant optimistic room creation
   const handleCreateRoom = () => {
     const roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
     const current: User = { ...user, isHost: true };
     setUser(current);
+
+    // Optimistically enter room
+    setRoom({
+      roomId,
+      hostId: current.id,
+      users: [current],
+      chat: [{
+        id: 'sys_' + Date.now(),
+        userId: 'system',
+        userName: 'Я рядом',
+        text: `Комната #${roomId} открыта. Ищите фильмы в Google и смотрите вместе!`,
+        timestamp: Date.now()
+      }],
+      currentMovie: {
+        id: 'spider-man-2026',
+        title: 'Человек-паук: Новый день (2026)',
+        year: 2026,
+        poster: 'https://images.unsplash.com/photo-1635805737707-575885ab0820?q=80&w=800&auto=format&fit=crop',
+        rating: 9.4,
+        genres: ['Премьера 2026', 'Боевик'],
+        description: 'Масштабная премьера 2026 года. Синхронный просмотр в Full HD качестве.',
+        streamUrl: 'https://test-streams.mux.dev/x36h264/x36h264.m3u8'
+      },
+      isPlaying: false,
+      currentTime: 0,
+      currentSite: 'https://www.google.com',
+      searchQuery: '',
+      activeView: 'browser',
+      lastUpdated: Date.now()
+    });
+
     socket?.emit('join_room', { roomId, user: current });
   };
 
   const handleJoinRoom = (e: React.FormEvent) => {
     e.preventDefault();
     if (!joinCode.trim()) return;
-    socket?.emit('join_room', { roomId: joinCode.trim().toUpperCase(), user });
+    const roomId = joinCode.trim().toUpperCase();
+
+    // Optimistically open
+    setRoom({
+      roomId,
+      hostId: '',
+      users: [user],
+      chat: [{
+        id: 'sys_' + Date.now(),
+        userId: 'system',
+        userName: 'Я рядом',
+        text: `Вход в комнату #${roomId}...`,
+        timestamp: Date.now()
+      }],
+      currentMovie: {
+        id: 'spider-man-2026',
+        title: 'Человек-паук: Новый день (2026)',
+        year: 2026,
+        poster: 'https://images.unsplash.com/photo-1635805737707-575885ab0820?q=80&w=800&auto=format&fit=crop',
+        streamUrl: 'https://test-streams.mux.dev/x36h264/x36h264.m3u8'
+      },
+      isPlaying: false,
+      currentTime: 0,
+      currentSite: 'https://www.google.com',
+      searchQuery: '',
+      activeView: 'browser',
+      lastUpdated: Date.now()
+    });
+
+    socket?.emit('join_room', { roomId, user });
   };
 
   const handleNavigateUrl = (target: string) => {
@@ -239,7 +300,7 @@ export default function App() {
       if (clean.includes('.') && !clean.includes(' ')) {
         clean = 'https://' + clean;
       } else {
-        clean = `https://user.kinogo.mu/index.php?do=search&subaction=search&story=${encodeURIComponent(clean)}`;
+        clean = `https://www.google.com/search?q=${encodeURIComponent(clean)}`;
       }
     }
 
@@ -261,11 +322,11 @@ export default function App() {
     }
   };
 
-  const handleSeek = (secs: number) => {
+  const handleSeek = (seconds: number) => {
     if (!videoRef.current || !room || !socket) return;
-    const nextTime = Math.max(0, videoRef.current.currentTime + secs);
-    videoRef.current.currentTime = nextTime;
-    socket.emit('video_seek', { roomId: room.roomId, currentTime: nextTime });
+    const newTime = Math.max(0, videoRef.current.currentTime + seconds);
+    videoRef.current.currentTime = newTime;
+    socket.emit('video_seek', { roomId: room.roomId, currentTime: newTime });
   };
 
   const handleSendChat = (e: React.FormEvent) => {
@@ -278,25 +339,37 @@ export default function App() {
     setChatText('');
   };
 
+  const handleToggleMute = () => {
+    const next = !isMuted;
+    setIsMuted(next);
+    socket?.emit('update_user_media', { roomId: room?.roomId, userId: user.id, isMuted: next });
+  };
+
+  const handleToggleVideo = () => {
+    const next = !isVideoOn;
+    setIsVideoOn(next);
+    socket?.emit('update_user_media', { roomId: room?.roomId, userId: user.id, isVideoOn: next });
+  };
+
   const handleCopy = () => {
     if (!room) return;
-    const link = window.location.origin + '?room=' + room.roomId;
-    navigator.clipboard.writeText(link);
+    const shareUrl = window.location.origin + '?room=' + room.roomId;
+    navigator.clipboard.writeText(shareUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // 1. WELCOME SCREEN
+  // 1. HOME SCREEN
   if (!room) {
     return (
-      <div className="flex flex-col h-screen w-screen bg-zinc-950 text-zinc-100 font-sans p-4 overflow-y-auto">
+      <div className="flex flex-col h-screen w-screen bg-zinc-950 text-zinc-100 font-sans p-4 sm:p-6 overflow-y-auto select-none">
         <div className="max-w-md mx-auto w-full flex-1 flex flex-col justify-between py-6 space-y-6">
           
-          {/* User Identification */}
+          {/* User Profile */}
           <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
             <div className="flex items-center space-x-3">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-500 to-rose-500 text-zinc-950 font-black text-lg flex items-center justify-center shadow-lg shadow-amber-500/20">
-                {user.name[0]?.toUpperCase() || 'U'}
+              <div className="w-12 h-12 rounded-2xl bg-amber-500 text-zinc-950 font-black text-base flex items-center justify-center shadow-lg shadow-amber-500/20">
+                {user.name[0]?.toUpperCase() || 'К'}
               </div>
               <div>
                 <p className="text-[11px] text-zinc-400 font-medium">Ваш профиль в Telegram:</p>
@@ -314,7 +387,7 @@ export default function App() {
                         if (tempName.trim()) setUser({ ...user, name: tempName.trim() });
                         setIsEditingName(false);
                       }}
-                      className="px-2 py-1 rounded-lg bg-amber-500 text-zinc-950 text-[10px] font-bold"
+                      className="px-2 py-1 rounded-lg bg-amber-500 text-zinc-950 text-[10px] font-bold cursor-pointer"
                     >
                       Ок
                     </button>
@@ -339,7 +412,7 @@ export default function App() {
             </span>
           </div>
 
-          {/* Action Box */}
+          {/* Main Create Action */}
           <div className="space-y-4 my-auto">
             <div className="bg-gradient-to-b from-zinc-900 to-zinc-900/60 border border-zinc-800 rounded-3xl p-6 shadow-2xl space-y-4 text-center">
               <div className="w-16 h-16 mx-auto rounded-3xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-3xl">
@@ -348,7 +421,7 @@ export default function App() {
               <div>
                 <h1 className="text-xl font-black text-white">Совместный просмотр кино</h1>
                 <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">
-                  Открывайте настоящие сайты Kinogo и Lordfilm, лазайте по страницам вместе и смотрите любые фильмы синхронно.
+                  Ищите любые фильмы в Google или на сайтах, лазайте по страницам вместе и смотрите кино синхронно.
                 </p>
               </div>
 
@@ -380,7 +453,7 @@ export default function App() {
           </div>
 
           <p className="text-center text-[11px] text-zinc-500">
-            Я рядом • Совместный браузер и кинотеатр для двоих
+            Я рядом • Совместный Google-браузер и кинотеатр для двоих
           </p>
         </div>
       </div>
@@ -400,6 +473,7 @@ export default function App() {
             type="button"
             onClick={() => setRoom(null)}
             className="p-1.5 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
+            title="Выйти из комнаты"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
@@ -419,6 +493,7 @@ export default function App() {
             type="button"
             onClick={handleCopy}
             className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-bold transition-all cursor-pointer flex items-center space-x-1"
+            title="Пригласить любимого человека"
           >
             <Share2 className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">{copied ? 'Скопировано!' : 'Пригласить'}</span>
@@ -444,7 +519,7 @@ export default function App() {
             ) : (
               <>
                 <Globe className="w-3.5 h-3.5" />
-                <span>Открыть сайт</span>
+                <span>Открыть поиск</span>
               </>
             )}
           </button>
@@ -503,14 +578,14 @@ export default function App() {
                   type="text"
                   value={inputUrl}
                   onChange={(e) => setInputUrl(e.target.value)}
-                  placeholder="Введите адрес сайта или название фильма..."
+                  placeholder="Введите запрос для поиска в Google или адрес сайта..."
                   className="w-full bg-zinc-950 border border-zinc-800 focus:border-amber-500 rounded-xl py-1.5 pl-8 pr-16 text-xs text-white placeholder-zinc-500 outline-none"
                 />
                 <button
                   type="submit"
                   className="absolute right-1 bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold px-2.5 py-1 rounded-lg text-[10px] cursor-pointer"
                 >
-                  Перейти
+                  Искать
                 </button>
               </div>
             </form>
@@ -578,6 +653,7 @@ export default function App() {
                   type="button"
                   onClick={() => handleSeek(-10)}
                   className="p-2 rounded-xl text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
+                  title="Назад на 10 сек"
                 >
                   <RotateCcw className="w-4 h-4" />
                 </button>
@@ -594,6 +670,7 @@ export default function App() {
                   type="button"
                   onClick={() => handleSeek(10)}
                   className="p-2 rounded-xl text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
+                  title="Вперед на 10 сек"
                 >
                   <RotateCw className="w-4 h-4" />
                 </button>
@@ -603,8 +680,8 @@ export default function App() {
           </div>
         )}
 
-        {/* Simultaneous Communication Toolbar */}
-        <div className="bg-zinc-900 border-t border-zinc-800 px-3 py-2 flex items-center justify-between shrink-0">
+        {/* Bottom Communication Bar */}
+        <div className="bg-zinc-900 border-t border-zinc-800 px-4 py-2.5 flex items-center justify-between shrink-0">
           <div className="text-[11px] font-bold text-zinc-400">
             Связь для двоих:
           </div>
@@ -612,11 +689,7 @@ export default function App() {
           <div className="flex items-center space-x-2">
             <button
               type="button"
-              onClick={() => {
-                const next = !isMuted;
-                setIsMuted(next);
-                socket?.emit('update_user_media', { roomId: room.roomId, userId: user.id, isMuted: next });
-              }}
+              onClick={handleToggleMute}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
                 isMuted ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
               }`}
@@ -627,11 +700,7 @@ export default function App() {
 
             <button
               type="button"
-              onClick={() => {
-                const next = !isVideoOn;
-                setIsVideoOn(next);
-                socket?.emit('update_user_media', { roomId: room.roomId, userId: user.id, isVideoOn: next });
-              }}
+              onClick={handleToggleVideo}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
                 isVideoOn ? 'bg-amber-500 text-zinc-950 shadow-md' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
               }`}
@@ -653,20 +722,20 @@ export default function App() {
           </div>
         </div>
 
-        {/* Text Chat Drawer */}
+        {/* Chat Drawer */}
         {isChatOpen && (
           <div className="absolute right-0 top-0 bottom-0 w-full sm:w-80 bg-zinc-950/95 border-l border-zinc-800 backdrop-blur-xl flex flex-col z-40 shadow-2xl animate-in slide-in-from-right duration-150">
-            <div className="p-3 border-b border-zinc-800 flex items-center justify-between">
+            <div className="p-3.5 border-b border-zinc-800 flex items-center justify-between">
               <div className="flex items-center space-x-2 text-amber-400 font-bold text-xs">
                 <MessageSquare className="w-4 h-4" />
                 <span className="text-white">Чат комнаты</span>
               </div>
-              <button type="button" onClick={() => setIsChatOpen(false)} className="text-zinc-400 hover:text-white p-1">
+              <button type="button" onClick={() => setIsChatOpen(false)} className="text-zinc-400 hover:text-white p-1 cursor-pointer">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+            <div className="flex-1 overflow-y-auto p-3.5 space-y-2.5">
               {room.chat.map((m) => (
                 <div key={m.id} className={`flex flex-col ${m.userId === user.id ? 'items-end' : 'items-start'}`}>
                   {m.userId !== 'system' && (
@@ -686,7 +755,7 @@ export default function App() {
               <div ref={chatBottomRef} />
             </div>
 
-            <form onSubmit={handleSendChat} className="p-2.5 border-t border-zinc-800 flex items-center space-x-2">
+            <form onSubmit={handleSendChat} className="p-3 border-t border-zinc-800 flex items-center space-x-2">
               <input
                 type="text"
                 value={chatText}
