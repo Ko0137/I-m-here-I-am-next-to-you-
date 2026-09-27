@@ -4,12 +4,12 @@ const ICE_SERVERS = {
   iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
 };
 
-export default function App() {
+export default function Home() {
   const [roomId, setRoomId] = useState('');
   const [joined, setJoined] = useState(false);
-  const [videoUrl, setVideoUrl] = useState('https://test-streams.mux.dev/x36h264/x36h264.m3u8');
+  const [isCreator, setIsCreator] = useState(false);
+  const [videoUrl, setVideoUrl] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
-  const [statusText, setStatusText] = useState('Готов к подключению');
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -22,15 +22,17 @@ export default function App() {
   useEffect(() => {
     if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp) {
       const tg = (window as any).Telegram.WebApp;
-      tg.ready();
-      tg.expand();
+      try {
+        tg.ready();
+        tg.expand();
+      } catch (e) {}
     }
   }, []);
 
-  const startRoom = async (isCreator: boolean) => {
-    if (!roomId.trim()) return alert('Введите ID комнаты!');
+  const startRoom = async (creator: boolean) => {
+    if (!roomId) return alert('Введите ID комнаты!');
     setJoined(true);
-    setStatusText('Подключение камеры и микрофона...');
+    setIsCreator(creator);
 
     const pc = new RTCPeerConnection(ICE_SERVERS);
     pcRef.current = pc;
@@ -60,10 +62,9 @@ export default function App() {
       }
     };
 
-    if (isCreator) {
-      setStatusText('Создание комнаты... Ожидание партнера');
+    if (creator) {
       const dc = pc.createDataChannel('sync');
-      setupDataChannel(dc);
+      setupDataChannel(dc, true);
       dcRef.current = dc;
 
       const offer = await pc.createOffer();
@@ -77,10 +78,9 @@ export default function App() {
 
       pollForAnswer(pc);
     } else {
-      setStatusText('Подключение к комнате...');
       pc.ondatachannel = (event) => {
         const dc = event.channel;
-        setupDataChannel(dc);
+        setupDataChannel(dc, false);
         dcRef.current = dc;
       };
 
@@ -88,10 +88,15 @@ export default function App() {
     }
   };
 
-  const setupDataChannel = (dc: RTCDataChannel) => {
+  const setupDataChannel = (dc: RTCDataChannel, creator: boolean) => {
     dc.onopen = () => {
-      setStatusText('Соединение установлено! Связь и видео синхронизированы.');
+      // Когда партнер подключается позже, создатель отправляет ему текущее время видео
+      if (creator && mediaVideoRef.current) {
+        const currentTime = mediaVideoRef.current.currentTime;
+        dc.send(JSON.stringify({ type: 'sync-video', time: currentTime, playing: isPlaying }));
+      }
     };
+
     dc.onmessage = (event) => {
       const message = JSON.parse(event.data);
       if (message.type === 'sync-video' && mediaVideoRef.current) {
@@ -109,55 +114,48 @@ export default function App() {
 
   const pollForAnswer = (pc: RTCPeerConnection) => {
     const interval = setInterval(async () => {
-      try {
-        const res = await fetch('/api/signal', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ roomId, action: 'get' }),
-        });
-        const data = await res.json();
-        if (data.answer && !pc.currentRemoteDescription) {
-          await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-          processCandidates(data.candidates, pc);
-          setStatusText('Партнер подключился! Смотрите вместе.');
-          clearInterval(interval);
-        }
-      } catch (err) {}
-    }, 1500);
+      const res = await fetch('/api/signal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomId, action: 'get' }),
+      });
+      const data = await res.json();
+      if (data.answer && !pc.currentRemoteDescription) {
+        await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+        processCandidates(data.candidates, pc);
+        clearInterval(interval);
+      }
+    }, 2000);
   };
 
   const pollForOfferAndConnect = (pc: RTCPeerConnection) => {
     const interval = setInterval(async () => {
-      try {
-        const res = await fetch('/api/signal', {
+      const res = await fetch('/api/signal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomId, action: 'get' }),
+      });
+      const data = await res.json();
+      if (data.offer && !pc.currentRemoteDescription) {
+        await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+
+        await fetch('/api/signal', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ roomId, action: 'get' }),
+          body: JSON.stringify({ roomId, action: 'answer', data: answer }),
         });
-        const data = await res.json();
-        if (data.offer && !pc.currentRemoteDescription) {
-          await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
 
-          await fetch('/api/signal', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ roomId, action: 'answer', data: answer }),
-          });
-
-          processCandidates(data.candidates, pc);
-          setStatusText('Вы в комнате! Смотрите вместе.');
-          clearInterval(interval);
-        }
-      } catch (err) {}
-    }, 1500);
+        processCandidates(data.candidates, pc);
+        clearInterval(interval);
+      }
+    }, 2000);
   };
 
   const processCandidates = (candidates: any[], pc: RTCPeerConnection) => {
-    if (candidates && Array.isArray(candidates)) {
-      candidates.forEach((c) => pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {}));
-    }
+    if (!candidates) return;
+    candidates.forEach((c) => pc.addIceCandidate(new RTCIceCandidate(c)));
   };
 
   const handlePlayPause = () => {
@@ -168,7 +166,7 @@ export default function App() {
       setIsPlaying(false);
       sendSyncData(video.currentTime, false);
     } else {
-      video.play().catch(() => {});
+      video.play();
       setIsPlaying(true);
       sendSyncData(video.currentTime, true);
     }
@@ -181,7 +179,7 @@ export default function App() {
   };
 
   return (
-    <main className="p-4 max-w-md mx-auto flex flex-col gap-4 text-white min-h-screen">
+    <main className="p-4 max-w-md mx-auto flex flex-col gap-4 font-sans text-white min-h-screen bg-slate-900">
       <h1 className="text-xl font-bold text-center">Telegram Watch Party</h1>
 
       {!joined ? (
@@ -191,27 +189,23 @@ export default function App() {
             placeholder="Введите название комнаты (например: date123)"
             value={roomId}
             onChange={(e) => setRoomId(e.target.value)}
-            className="p-3 rounded bg-slate-800 border border-slate-700 text-white outline-none"
+            className="p-3 rounded bg-slate-800 border border-slate-700 text-white outline-none focus:border-indigo-500"
           />
           <button
             onClick={() => startRoom(true)}
             className="p-3 rounded bg-indigo-600 font-semibold hover:bg-indigo-500 cursor-pointer transition-colors"
           >
-            Создать комнату
+            Создать комнату (я смотрю первый)
           </button>
           <button
             onClick={() => startRoom(false)}
             className="p-3 rounded bg-emerald-600 font-semibold hover:bg-emerald-500 cursor-pointer transition-colors"
           >
-            Войти в комнату
+            Войти в комнату (подключиться позже)
           </button>
         </div>
       ) : (
         <div className="flex flex-col gap-4">
-          <div className="text-xs text-center text-emerald-400 bg-slate-800/80 p-2 rounded-lg border border-slate-700">
-            Комната: <b>#{roomId}</b> • {statusText}
-          </div>
-
           <div className="grid grid-cols-2 gap-2">
             <div className="relative bg-black rounded overflow-hidden aspect-video">
               <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
@@ -226,23 +220,22 @@ export default function App() {
           <div className="flex flex-col gap-2">
             <input
               type="text"
-              placeholder="Прямая ссылка на MP4 / HLS видеофайл"
+              placeholder="Прямая ссылка на MP4 видеофайл"
               value={videoUrl}
               onChange={(e) => setVideoUrl(e.target.value)}
-              className="p-2 rounded bg-slate-800 border border-slate-700 text-sm outline-none"
+              className="p-2 rounded bg-slate-800 border border-slate-700 text-sm outline-none focus:border-indigo-500"
             />
             {videoUrl && (
               <div className="flex flex-col gap-2">
                 <video
                   ref={mediaVideoRef}
                   src={videoUrl}
-                  className="w-full rounded aspect-video bg-black cursor-pointer"
+                  className="w-full rounded aspect-video bg-black"
                   onClick={handlePlayPause}
-                  playsInline
                 />
                 <button
                   onClick={handlePlayPause}
-                  className="p-2.5 bg-blue-600 hover:bg-blue-500 rounded font-semibold text-sm cursor-pointer transition-colors"
+                  className="p-2 bg-blue-600 rounded font-semibold text-sm cursor-pointer hover:bg-blue-500 transition-colors"
                 >
                   {isPlaying ? 'Пауза' : 'Воспроизведение'}
                 </button>
