@@ -84,11 +84,21 @@ export const SharedBrowser: React.FC<SharedBrowserProps> = ({
     let clean = targetUrl.trim();
     if (!clean) return;
 
-    // If query without protocol or domain, make it a google search
-    if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
+    // Natural language / Russian query recognition
+    const lower = clean.toLowerCase();
+    if (lower.includes('киного') || lower.includes('kinogo')) {
+      clean = 'https://kinogo.mu';
+    } else if (lower.includes('лордфильм') || lower.includes('lordfilm')) {
+      clean = 'https://lordfilm.md';
+    } else if (lower.includes('ютуб') || lower.includes('youtube')) {
+      clean = 'https://m.youtube.com';
+    } else if (lower.includes('кинопоиск') || lower.includes('kinopoisk')) {
+      clean = 'https://www.kinopoisk.ru';
+    } else if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
       if (clean.includes('.') && !clean.includes(' ')) {
         clean = 'https://' + clean;
       } else {
+        // Direct search across movie engines
         clean = `https://www.google.com/search?q=${encodeURIComponent(clean)}`;
       }
     }

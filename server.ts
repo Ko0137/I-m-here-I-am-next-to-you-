@@ -217,6 +217,38 @@ app.get('/api/proxy-page', async (req, res) => {
       normalized = 'https://' + normalized;
     }
 
+    // Special handler for YouTube: transform standard watch URL to embed player for seamless playback in iframe
+    if (normalized.includes('youtube.com/watch') || normalized.includes('youtu.be/')) {
+      let videoId = '';
+      if (normalized.includes('v=')) {
+        const u = new URL(normalized);
+        videoId = u.searchParams.get('v') || '';
+      } else if (normalized.includes('youtu.be/')) {
+        videoId = normalized.split('youtu.be/')[1]?.split('?')[0] || '';
+      }
+      if (videoId) {
+        return res.send(`
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <style>
+                body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
+                iframe { width: 100%; height: 100%; border: none; }
+              </style>
+            </head>
+            <body>
+              <iframe 
+                src="https://www.youtube.com/embed/${videoId}?autoplay=1&playsinline=1&rel=0" 
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
+                allowfullscreen>
+              </iframe>
+            </body>
+          </html>
+        `);
+      }
+    }
+
     const response = await axios.get(normalized, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
