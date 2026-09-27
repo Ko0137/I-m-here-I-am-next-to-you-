@@ -1,6 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
-  Globe, 
   ArrowLeft, 
   ArrowRight, 
   RotateCw, 
@@ -8,14 +7,18 @@ import {
   Users, 
   Film, 
   Search,
-  Tv,
   CheckCircle2,
   Sparkles,
   Link2,
-  Layers
+  Layers,
+  Star,
+  Tv,
+  Flame,
+  Globe
 } from 'lucide-react';
 import { RoomState, User, Movie } from '../types';
 import { appEventBus } from '../services/eventBus';
+import axios from 'axios';
 
 interface SharedBrowserProps {
   room: RoomState;
@@ -26,11 +29,19 @@ interface SharedBrowserProps {
   onSelectMovie?: (movie: Movie) => void;
 }
 
-const CINEMA_BOOKMARKS = [
-  { name: 'Lordfilm (Премьеры 2026)', url: 'https://mg.lordfilm.md' },
-  { name: 'Kinogo HD', url: 'https://user.kinogo.mu' },
-  { name: 'YouTube Тренды', url: 'https://www.youtube.com' },
-  { name: 'Яндекс Поиск Фильмов', url: 'https://ya.ru' }
+interface WebCinemaSite {
+  id: string;
+  name: string;
+  badge: string;
+  category: string;
+  domain: string;
+}
+
+const CINEMA_SOURCES: WebCinemaSite[] = [
+  { id: 'lordfilm', name: 'Lordfilm (lordfilm.md)', badge: 'Премьеры 2026', category: 'Сериалы & Фильмы', domain: 'mg.lordfilm.md' },
+  { id: 'kinogo', name: 'Kinogo (kinogo.mu)', badge: 'Full HD', category: 'Кинотеатр', domain: 'user.kinogo.mu' },
+  { id: 'youtube', name: 'YouTube Тренды', badge: '4K Видео', category: 'Видеохостинг', domain: 'youtube.com' },
+  { id: 'rezka', name: 'HDRezka', badge: 'Дубляж', category: 'Топ озвучки', domain: 'hdrezka.ag' }
 ];
 
 export const SharedBrowser: React.FC<SharedBrowserProps> = ({
@@ -42,242 +53,308 @@ export const SharedBrowser: React.FC<SharedBrowserProps> = ({
   onSelectMovie
 }) => {
   const browserState = room.sharedBrowser;
-  const initialUrl = browserState?.currentUrl || 'https://mg.lordfilm.md';
+  const [selectedSite, setSelectedSite] = useState<string>('lordfilm');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [movies, setMovies] = useState<Movie[]>([]);
+  const [activeTab, setActiveTab] = useState<'catalog' | 'search' | 'direct'>('catalog');
+  const [directUrl, setDirectUrl] = useState('');
+  const [directTitle, setDirectTitle] = useState('');
 
-  const [inputUrl, setInputUrl] = useState(initialUrl);
-  const [currentUrl, setCurrentUrl] = useState(initialUrl);
-  const [isLoading, setIsLoading] = useState(false);
-  const [lastMoviePicked, setLastMoviePicked] = useState<{ title: string; poster?: string } | null>(null);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+  // Fetch initial movies
+  const fetchMovies = async (query = '') => {
+    setLoading(true);
+    try {
+      const res = await axios.get(`/api/search?q=${encodeURIComponent(query)}`);
+      if (res.data?.results) {
+        setMovies(res.data.results);
+      }
+    } catch (e) {
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const controllerName = browserState?.controllerName || currentUser?.name || 'Вы';
-  const isController = browserState ? browserState.controllerId === currentUser?.id : true;
+  useEffect(() => {
+    fetchMovies(searchQuery);
+  }, [selectedSite]);
 
-  // Listen for navigation sync from socket
+  // Sync navigation / site selection via socket so both users see the same
   useEffect(() => {
     if (!socket) return;
 
-    const handleRemoteNavigate = (data: { url: string; userName?: string }) => {
-      setCurrentUrl(data.url);
-      setInputUrl(data.url);
-      setIsLoading(true);
-    };
-
-    const handleRemoteScroll = (data: { scrollY: number }) => {
-      if (iframeRef.current?.contentWindow) {
-        iframeRef.current.contentWindow.postMessage(
-          { type: 'APPLY_REMOTE_SCROLL', scrollY: data.scrollY },
-          '*'
-        );
+    const handleRemoteNavigate = (data: { url: string; userName?: string; site?: string }) => {
+      if (data.site) {
+        setSelectedSite(data.site);
+      }
+      if (data.url) {
+        setSearchQuery(data.url);
+        fetchMovies(data.url);
       }
     };
 
     socket.on('browser_remote_navigate', handleRemoteNavigate);
-    socket.on('browser_remote_scroll', handleRemoteScroll);
-
     return () => {
       socket.off('browser_remote_navigate', handleRemoteNavigate);
-      socket.off('browser_remote_scroll', handleRemoteScroll);
     };
   }, [socket]);
 
-  // Listen to messages from inside the in-app proxied browser
-  useEffect(() => {
-    const handleWindowMessage = (e: MessageEvent) => {
-      if (!e.data) return;
-
-      if (e.data.type === 'CINEMA_MOVIE_CLICKED') {
-        const title = e.data.title || 'Выбранный фильм';
-        const poster = e.data.poster || 'https://images.unsplash.com/photo-1534447677768-be436bb09401?q=80&w=800&auto=format&fit=crop';
-        const streamUrl = e.data.streamUrl || 'https://test-streams.mux.dev/x36h264/x36h264.m3u8';
-
-        setLastMoviePicked({ title, poster });
-
-        const selectedMovie: Movie = {
-          id: 'movie_' + Date.now(),
-          title: title,
-          year: 2026,
-          poster: poster,
-          description: `Синхронный просмотр из каталога: ${title}`,
-          rating: 9.1,
-          genres: ['Lordfilm', 'Full HD', 'Синхронно'],
-          streamUrl: streamUrl,
-          episodes: [
-            { season: 1, episode: 1, title: 'Серия 1 (1080p Дубляж)', streamUrl: streamUrl }
-          ]
-        };
-
-        if (onSelectMovie) {
-          onSelectMovie(selectedMovie);
-        }
-
-        appEventBus.emit('SUCCESS_FEEDBACK', `Фильм «${title}» запущен у обоих участников!`);
-      } else if (e.data.type === 'BROWSER_NAVIGATE_SYNC') {
-        handleNavigate(e.data.url);
-      } else if (e.data.type === 'BROWSER_SCROLL_SYNC') {
-        if (socket && room) {
-          socket.emit('browser_scroll', { roomId: room.roomId, scrollY: e.data.scrollY });
-        }
-      }
-    };
-
-    window.addEventListener('message', handleWindowMessage);
-    return () => window.removeEventListener('message', handleWindowMessage);
-  }, [socket, room, onSelectMovie]);
-
-  const handleNavigate = (targetUrl: string) => {
-    let clean = targetUrl.trim();
-    if (!clean) return;
-
-    if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
-      if (clean.includes('.') && !clean.includes(' ')) {
-        clean = 'https://' + clean;
-      } else {
-        clean = `https://www.google.com/search?q=${encodeURIComponent(clean + ' смотреть онлайн')}`;
-      }
-    }
-
-    setCurrentUrl(clean);
-    setInputUrl(clean);
-    setIsLoading(true);
-
+  const handleSelectSite = (siteId: string) => {
+    setSelectedSite(siteId);
     if (socket && room && currentUser) {
       socket.emit('browser_navigate', {
         roomId: room.roomId,
-        url: clean,
+        url: searchQuery,
+        site: siteId,
         userId: currentUser.id,
         userName: currentUser.name
       });
     }
   };
 
-  const proxySrc = `/api/proxy-browser?url=${encodeURIComponent(currentUrl)}`;
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!searchQuery.trim()) return;
+    fetchMovies(searchQuery.trim());
+
+    if (socket && room && currentUser) {
+      socket.emit('browser_navigate', {
+        roomId: room.roomId,
+        url: searchQuery.trim(),
+        site: selectedSite,
+        userId: currentUser.id,
+        userName: currentUser.name
+      });
+    }
+  };
+
+  const handlePickMovie = (movie: Movie) => {
+    appEventBus.emit('SUCCESS_FEEDBACK', `Фильм «${movie.title}» запущен у обоих зрителей!`);
+    if (onSelectMovie) {
+      onSelectMovie(movie);
+    }
+    onClose();
+  };
+
+  const handleDirectSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const clean = directUrl.trim();
+    if (!clean) return;
+
+    let derivedTitle = directTitle.trim();
+    if (!derivedTitle) {
+      try {
+        const u = new URL(clean);
+        derivedTitle = `Видео: ${u.hostname}`;
+      } catch (e) {
+        derivedTitle = 'Онлайн Видеопоток';
+      }
+    }
+
+    const customMovie: Movie = {
+      id: 'custom_' + Date.now(),
+      title: derivedTitle,
+      year: 2026,
+      poster: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?q=80&w=800&auto=format&fit=crop',
+      description: `Синхронный видеопоток: ${clean}`,
+      rating: 9.4,
+      genres: ['Прямой поток', 'Синхронно'],
+      streamUrl: clean
+    };
+
+    handlePickMovie(customMovie);
+  };
 
   return (
     <div className="flex-1 flex flex-col bg-stone-950 text-stone-100 overflow-hidden relative select-none">
       
-      {/* Top Browser Bar */}
-      <div className="bg-stone-900 border-b border-stone-800 p-2 sm:p-3 flex items-center justify-between space-x-2 shrink-0">
+      {/* Top Browser Navigation Header */}
+      <div className="bg-stone-900 border-b border-stone-800 p-3 sm:p-4 flex items-center justify-between space-x-2 shrink-0">
         
-        {/* Navigation Buttons */}
-        <div className="flex items-center space-x-1 shrink-0">
-          <button
-            type="button"
-            onClick={() => {
-              if (iframeRef.current?.contentWindow) {
-                iframeRef.current.contentWindow.history.back();
-              }
-            }}
-            className="p-2 rounded-xl text-stone-400 hover:text-white hover:bg-stone-800 transition-colors"
-            title="Назад"
-          >
-            <ArrowLeft className="w-4 h-4" />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              if (iframeRef.current?.contentWindow) {
-                iframeRef.current.contentWindow.history.forward();
-              }
-            }}
-            className="p-2 rounded-xl text-stone-400 hover:text-white hover:bg-stone-800 transition-colors"
-            title="Вперед"
-          >
-            <ArrowRight className="w-4 h-4" />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => handleNavigate(currentUrl)}
-            className="p-2 rounded-xl text-stone-400 hover:text-white hover:bg-stone-800 transition-colors"
-            title="Обновить"
-          >
-            <RotateCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-amber-400' : ''}`} />
-          </button>
+        {/* Cinema Site Switcher */}
+        <div className="flex items-center space-x-1 sm:space-x-2 overflow-x-auto scrollbar-none py-0.5">
+          {CINEMA_SOURCES.map((site) => (
+            <button
+              key={site.id}
+              type="button"
+              onClick={() => handleSelectSite(site.id)}
+              className={`px-3 py-1.5 rounded-2xl text-xs font-bold flex items-center space-x-1.5 transition-all shrink-0 cursor-pointer ${
+                selectedSite === site.id
+                  ? 'bg-amber-500 text-stone-950 shadow-md shadow-amber-500/20'
+                  : 'bg-stone-800 text-stone-300 hover:bg-stone-700 hover:text-white'
+              }`}
+            >
+              <Globe className="w-3.5 h-3.5" />
+              <span>{site.name}</span>
+            </button>
+          ))}
         </div>
 
-        {/* Address & Search Input */}
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleNavigate(inputUrl);
-          }}
-          className="flex-1 max-w-xl relative flex items-center"
+        {/* Back to video player */}
+        <button
+          type="button"
+          onClick={onClose}
+          className="px-3.5 py-1.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-stone-950 text-xs font-black transition-all shadow-md shrink-0 cursor-pointer"
         >
-          <div className="absolute left-3 text-stone-500 pointer-events-none flex items-center">
-            <Globe className="w-3.5 h-3.5 mr-1 text-amber-500" />
-          </div>
+          К плееру
+        </button>
+      </div>
 
+      {/* Instant Search Bar & Direct Link Tabs */}
+      <div className="bg-stone-900/60 border-b border-stone-800 px-3 py-2 sm:px-4 sm:py-3 flex flex-col sm:flex-row items-center justify-between gap-2">
+        <form onSubmit={handleSearchSubmit} className="flex-1 w-full max-w-2xl relative flex items-center">
+          <Search className="absolute left-3.5 w-4 h-4 text-stone-500 pointer-events-none" />
           <input
             type="text"
-            value={inputUrl}
-            onChange={(e) => setInputUrl(e.target.value)}
-            placeholder="Введите адрес сайта или название фильма..."
-            className="w-full bg-stone-950 border border-stone-800 focus:border-amber-500 focus:ring-1 focus:ring-amber-500/50 rounded-2xl py-1.5 pl-8 pr-16 text-xs text-stone-200 placeholder-stone-500 outline-none transition-all"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={`Поиск любого фильма или сериала на ${CINEMA_SOURCES.find(s => s.id === selectedSite)?.name}...`}
+            className="w-full bg-stone-950 border border-stone-800 focus:border-amber-500 rounded-2xl py-2 pl-10 pr-20 text-xs text-white placeholder-stone-500 outline-none transition-all"
           />
-
           <button
             type="submit"
-            className="absolute right-1.5 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold px-2.5 py-1 rounded-xl text-[10px] shadow-sm transition-all"
+            className="absolute right-1.5 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold px-3 py-1 rounded-xl text-xs transition-all cursor-pointer"
           >
             Найти
           </button>
         </form>
 
-        {/* Action Controls */}
-        <div className="flex items-center space-x-2 shrink-0">
-          <div className="hidden sm:flex items-center space-x-1 text-[11px] text-amber-400 font-bold bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-xl">
-            <Users className="w-3.5 h-3.5" />
-            <span>Синхронизировано у обоих</span>
-          </div>
-
+        <div className="flex items-center space-x-2 shrink-0 self-end sm:self-auto">
           <button
             type="button"
-            onClick={onClose}
-            className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 text-xs font-bold transition-all shadow-md cursor-pointer"
+            onClick={() => setActiveTab('direct')}
+            className="px-3 py-1.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-amber-300 border border-stone-700 text-xs font-semibold flex items-center space-x-1 cursor-pointer transition-all"
           >
-            К плееру
+            <Link2 className="w-3.5 h-3.5" />
+            <span>Прямая ссылка</span>
           </button>
         </div>
       </div>
 
-      {/* Bookmarks Bar */}
-      <div className="bg-stone-950 border-b border-stone-800/80 px-3 py-1.5 flex items-center space-x-2 overflow-x-auto scrollbar-none">
-        <span className="text-[10px] font-black text-amber-400 uppercase tracking-wider shrink-0 flex items-center space-x-1">
-          <Sparkles className="w-3 h-3" />
-          <span>Сайты:</span>
-        </span>
-        {CINEMA_BOOKMARKS.map((site) => (
-          <button
-            key={site.name}
-            type="button"
-            onClick={() => handleNavigate(site.url)}
-            className="px-2.5 py-1 rounded-lg bg-stone-900 hover:bg-stone-800 active:bg-amber-500/20 text-stone-300 hover:text-amber-400 border border-stone-800 text-[11px] font-medium shrink-0 flex items-center space-x-1 transition-all"
-          >
-            <span>{site.name}</span>
-          </button>
-        ))}
-      </div>
-
-      {/* Interactive In-App Synchronized Browser Iframe */}
-      <div className="flex-1 relative bg-stone-950">
-        <iframe
-          ref={iframeRef}
-          src={proxySrc}
-          title="In-App Synchronized Browser"
-          onLoad={() => setIsLoading(false)}
-          className="w-full h-full border-none bg-stone-950"
-          sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
-        />
-
-        {isLoading && (
-          <div className="absolute inset-0 bg-stone-950/50 backdrop-blur-sm flex items-center justify-center pointer-events-none">
-            <div className="flex items-center space-x-2 bg-stone-900 border border-stone-800 px-4 py-2.5 rounded-2xl shadow-2xl text-xs font-bold text-amber-400">
-              <RotateCw className="w-4 h-4 animate-spin" />
-              <span>Загрузка и синхронизация сайта...</span>
+      {/* Main Content Area: Direct Link or Interactive Cinema Catalog */}
+      <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+        {activeTab === 'direct' ? (
+          <div className="max-w-md mx-auto bg-stone-900 border border-stone-800 rounded-3xl p-6 shadow-2xl space-y-4 my-4">
+            <div className="flex items-center space-x-2 text-amber-400">
+              <Link2 className="w-5 h-5" />
+              <h3 className="font-extrabold text-base text-white">Вставить ссылку на фильм или видео</h3>
             </div>
+            <p className="text-xs text-stone-400 leading-relaxed">
+              Вставьте адрес любого фильма, ролика YouTube, .mp4 или .m3u8 видеопотока — он запустится одновременно у обоих зрителей.
+            </p>
+            <form onSubmit={handleDirectSubmit} className="space-y-3">
+              <div>
+                <label className="text-xs font-bold text-stone-300 block mb-1">Ссылка на фильм *</label>
+                <input
+                  type="text"
+                  value={directUrl}
+                  onChange={(e) => setDirectUrl(e.target.value)}
+                  placeholder="https://... (mp4, m3u8, youtube или страница фильма)"
+                  className="w-full bg-stone-950 border border-stone-800 rounded-2xl p-3 text-xs text-white placeholder-stone-500 outline-none focus:border-amber-500"
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-stone-300 block mb-1">Название фильма</label>
+                <input
+                  type="text"
+                  value={directTitle}
+                  onChange={(e) => setDirectTitle(e.target.value)}
+                  placeholder="Например: Любимый фильм"
+                  className="w-full bg-stone-950 border border-stone-800 rounded-2xl p-3 text-xs text-white placeholder-stone-500 outline-none focus:border-amber-500"
+                />
+              </div>
+              <div className="flex items-center justify-end space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('catalog')}
+                  className="px-4 py-2 rounded-xl bg-stone-800 text-stone-300 text-xs font-semibold hover:bg-stone-700 cursor-pointer"
+                >
+                  Назад к каталогу
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 text-xs font-black shadow-md cursor-pointer"
+                >
+                  Включить для двоих
+                </button>
+              </div>
+            </form>
           </div>
+        ) : (
+          <>
+            {/* Site status banner */}
+            <div className="flex items-center justify-between bg-stone-900/60 border border-stone-800 rounded-2xl px-4 py-2.5">
+              <div className="flex items-center space-x-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                <span className="text-xs font-bold text-white">
+                  Источник: {CINEMA_SOURCES.find(s => s.id === selectedSite)?.name}
+                </span>
+              </div>
+              <span className="text-[11px] text-amber-400 font-medium">
+                Нажмите на любой фильм — он сразу включится у обоих зрителей
+              </span>
+            </div>
+
+            {/* Movies Grid */}
+            {loading ? (
+              <div className="flex items-center justify-center p-12 text-amber-400 space-x-2">
+                <RotateCw className="w-5 h-5 animate-spin" />
+                <span className="text-xs font-bold">Загрузка фильмов с сайта...</span>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                {movies.map((movie) => (
+                  <div
+                    key={movie.id}
+                    onClick={() => handlePickMovie(movie)}
+                    className="group relative flex flex-col overflow-hidden rounded-3xl bg-stone-900 border border-stone-800 hover:border-amber-500/80 active:scale-[0.98] transition-all cursor-pointer shadow-lg select-none"
+                  >
+                    <div className="aspect-[2/3] overflow-hidden relative bg-stone-950">
+                      <img
+                        src={movie.poster}
+                        alt={movie.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 pointer-events-none"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-stone-950 via-stone-950/20 to-transparent"></div>
+
+                      {/* Play Hover Overlay */}
+                      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40">
+                        <div className="h-12 w-12 rounded-full bg-amber-500 text-stone-950 flex items-center justify-center shadow-xl shadow-amber-500/30 transform group-hover:scale-110 transition-transform">
+                          <Play className="w-5 h-5 fill-stone-950 ml-0.5" />
+                        </div>
+                      </div>
+
+                      <div className="absolute top-2.5 left-2.5 flex items-center space-x-1 rounded-md bg-emerald-500 text-stone-950 px-2 py-0.5 text-[10px] font-black">
+                        <span>2026</span>
+                      </div>
+
+                      <div className="absolute bottom-2.5 right-2.5 flex items-center space-x-1 rounded-full bg-stone-950/90 backdrop-blur-md px-2 py-0.5 text-[10px] font-bold text-amber-400 border border-stone-800">
+                        <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                        <span>{movie.rating}</span>
+                      </div>
+                    </div>
+
+                    <div className="p-3 flex-1 flex flex-col justify-between space-y-1.5">
+                      <div>
+                        <h4 className="font-extrabold text-white text-xs sm:text-sm group-hover:text-amber-400 transition-colors line-clamp-1">
+                          {movie.title}
+                        </h4>
+                        <p className="text-[10px] text-stone-400 line-clamp-2 mt-0.5">
+                          {movie.description}
+                        </p>
+                      </div>
+
+                      <div className="pt-2 border-t border-stone-800 flex items-center justify-between text-[10px] font-bold text-amber-400">
+                        <span>Смотреть вместе</span>
+                        <Play className="w-3 h-3 fill-amber-400" />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
 
