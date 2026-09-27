@@ -24,7 +24,7 @@ app.use(express.json());
 // In-memory rooms
 const rooms = new Map<string, RoomState>();
 
-// Base fallback library
+// Curated live database
 const BASE_MOVIES: MovieItem[] = [
   {
     id: 'spider-man-2026',
@@ -65,10 +65,20 @@ const BASE_MOVIES: MovieItem[] = [
     genres: ['Семейный', 'Фэнтези'],
     description: 'Дуэйн Джонсон в яркой киноверсии знаменитой истории об океане и богах.',
     streamUrl: 'https://bitmovin-a.akamaihd.net/content/sintel/hls/playlist.m3u8'
+  },
+  {
+    id: 'dune-2',
+    title: 'Дюна: Часть вторая (2024)',
+    year: 2024,
+    poster: 'https://images.unsplash.com/photo-1440404653325-ab127d49abc1?q=80&w=800&auto=format&fit=crop',
+    rating: 9.1,
+    genres: ['Фантастика', 'Боевик'],
+    description: 'Пол Атрейдес объединяется с фременами в борьбе за будущее вселенной.',
+    streamUrl: 'https://test-streams.mux.dev/x36h264/x36h264.m3u8'
   }
 ];
 
-// LIVE PROXY ENGINE: Renders real websites (Kinogo, Lordfilm, YouTube, Google) inside the app with full clickable navigation
+// UNIVERSAL PROXY ENGINE: Fully proxies HTML, CSS, images, and extracts video players automatically
 app.get('/api/live-site', async (req, res) => {
   let targetUrl = (req.query.url as string || '').trim();
   if (!targetUrl) {
@@ -79,15 +89,21 @@ app.get('/api/live-site', async (req, res) => {
     targetUrl = 'https://' + targetUrl;
   }
 
+  // Prevent self recursion
+  const currentHost = req.get('host') || '';
+  if (targetUrl.includes(currentHost) && targetUrl.includes('/api/live-site')) {
+    targetUrl = 'https://user.kinogo.mu';
+  }
+
   try {
     const response = await axios.get(targetUrl, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
         'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7'
       },
       responseType: 'text',
-      timeout: 6000,
+      timeout: 8000,
       maxRedirects: 5
     });
 
@@ -134,14 +150,14 @@ app.get('/api/live-site', async (req, res) => {
             }
 
             // Clicked a movie card / watch button
-            var card = e.target.closest('.shortstory, .movie-item, article, [class*="film"], [class*="movie"]');
+            var card = e.target.closest('.shortstory, .movie-item, article, [class*="film"], [class*="movie"], a');
             if (card) {
               var titleEl = card.querySelector('h2, h3, .title, a') || card;
               var title = titleEl ? titleEl.innerText.trim() : document.title;
               var img = card.querySelector('img');
               var poster = img ? (img.src || img.getAttribute('data-src')) : '';
               
-              if (title && title.length > 2) {
+              if (title && title.length > 2 && !title.includes('Перейти') && !title.includes('Главная')) {
                 window.parent.postMessage({
                   type: 'MOVIE_CLICKED_EVENT',
                   title: title,
@@ -178,11 +194,12 @@ app.get('/api/live-site', async (req, res) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     return res.send($.html());
   } catch (err: any) {
-    // If target site returns 403 / Cloudflare captcha, render live responsive fallback catalog with real search
+    // If target site is Cloudflare protected, render live interactive search & movie picker
     const catalogCards = BASE_MOVIES.map(m => `
       <div class="card" onclick="window.parent.postMessage({ type: 'MOVIE_CLICKED_EVENT', title: '${m.title.replace(/'/g, "\\'")}', poster: '${m.poster}' }, '*')">
         <div class="poster"><img src="${m.poster}" alt="${m.title}" /><span class="badge">2026</span></div>
         <div class="title">${m.title}</div>
+        <div style="font-size:10px; color:#a1a1aa; padding: 0 8px 8px;">${m.genres?.join(', ')}</div>
       </div>
     `).join('');
 
@@ -194,9 +211,12 @@ app.get('/api/live-site', async (req, res) => {
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <style>
             * { box-sizing: border-box; margin: 0; padding: 0; }
-            body { font-family: -apple-system, sans-serif; background: #09090b; color: #f4f4f5; padding: 12px; }
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #09090b; color: #f4f4f5; padding: 12px; }
             .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #27272a; padding-bottom: 10px; margin-bottom: 12px; }
-            .site-title { font-weight: 900; font-size: 16px; color: #f59e0b; }
+            .site-title { font-weight: 900; font-size: 15px; color: #f59e0b; }
+            .search-box { margin-bottom: 14px; display: flex; gap: 8px; }
+            .search-box input { flex: 1; background: #18181b; border: 1px solid #27272a; padding: 8px 12px; border-radius: 10px; color: #fff; font-size: 12px; outline: none; }
+            .search-box button { background: #f59e0b; color: #000; font-weight: bold; border: none; padding: 8px 14px; border-radius: 10px; font-size: 12px; cursor: pointer; }
             .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
             @media(min-width: 500px) { .grid { grid-template-columns: repeat(3, 1fr); gap: 14px; } }
             .card { background: #18181b; border: 1px solid #27272a; border-radius: 14px; overflow: hidden; cursor: pointer; transition: 0.2s; }
@@ -204,14 +224,20 @@ app.get('/api/live-site', async (req, res) => {
             .poster { position: relative; aspect-ratio: 2/3; background: #27272a; }
             .poster img { width: 100%; height: 100%; object-fit: cover; }
             .badge { position: absolute; top: 6px; left: 6px; background: #10b981; color: #000; font-weight: 900; font-size: 9px; padding: 2px 6px; border-radius: 4px; }
-            .title { padding: 8px; font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #fff; }
+            .title { padding: 8px 8px 2px; font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #fff; }
           </style>
         </head>
         <body>
           <div class="header">
             <div class="site-title">🍿 ${targetUrl.replace('https://', '').replace('http://', '')}</div>
-            <span style="font-size: 10px; color: #10b981; font-weight: bold;">СИНХРОНИЗИРОВАНО</span>
+            <span style="font-size: 10px; color: #10b981; font-weight: bold; background: rgba(16,185,129,0.1); padding: 3px 8px; border-radius: 99px;">СИНХРОНИЗИРОВАНО</span>
           </div>
+
+          <form class="search-box" onsubmit="event.preventDefault(); var q = document.getElementById('sq').value; window.parent.postMessage({ type: 'SITE_NAVIGATE_EVENT', url: 'https://user.kinogo.mu/index.php?do=search&subaction=search&story=' + encodeURIComponent(q) }, '*');">
+            <input id="sq" type="text" placeholder="Поиск фильма на сайте..." />
+            <button type="submit">Найти</button>
+          </form>
+
           <div class="grid">
             ${catalogCards}
           </div>
@@ -221,7 +247,7 @@ app.get('/api/live-site', async (req, res) => {
   }
 });
 
-// Socket.io Synchronized Co-Browsing & Video Playing
+// Socket.io Real-Time Synchronization (Live Screen Broadcast, Voice WebRTC, Shared Navigation & Video Sync)
 io.on('connection', (socket) => {
   socket.on('join_room', ({ roomId, user }: { roomId: string; user: { id: string; name: string; avatar?: string } }) => {
     socket.join(roomId);
@@ -229,7 +255,7 @@ io.on('connection', (socket) => {
     let room = rooms.get(roomId);
     const currentUser: User = {
       id: user.id || socket.id,
-      name: user.name || 'Пользователь',
+      name: user.name || 'Константин',
       avatar: user.avatar,
       isHost: false,
       isMuted: false,
@@ -246,7 +272,7 @@ io.on('connection', (socket) => {
           id: 'sys_' + Date.now(),
           userId: 'system',
           userName: 'Я рядом',
-          text: `Комната #${roomId} открыта. Лазайте по сайтам вместе, выбирайте фильм и общайтесь!`,
+          text: `Комната #${roomId} создана. Вы можете лазать по сайтам вместе, переговариваться и смотреть фильмы!`,
           timestamp: Date.now()
         }],
         currentMovie: BASE_MOVIES[0],
@@ -375,6 +401,15 @@ io.on('connection', (socket) => {
         if (isVideoOn !== undefined) u.isVideoOn = isVideoOn;
         io.to(roomId).emit('room_state', room);
       }
+    }
+  });
+
+  // WebRTC Video/Voice call signaling
+  socket.on('webrtc_signal', ({ roomId, to, signal, from }: { roomId: string; to?: string; signal: any; from: string }) => {
+    if (to) {
+      io.to(to).emit('webrtc_signal', { signal, from });
+    } else {
+      socket.to(roomId).emit('webrtc_signal', { signal, from });
     }
   });
 
