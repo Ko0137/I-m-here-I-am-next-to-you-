@@ -5,7 +5,6 @@ import {
   Pause, 
   RotateCcw, 
   RotateCw, 
-  Maximize, 
   Volume2, 
   VolumeX, 
   Globe, 
@@ -24,7 +23,11 @@ import {
   Film,
   Plus,
   ArrowLeft,
-  Share2
+  Share2,
+  Tv,
+  Check,
+  PhoneCall,
+  Heart
 } from 'lucide-react';
 import { User, RoomState, MovieItem, ChatMessage } from './types';
 import { socketService } from './services/socket';
@@ -37,10 +40,38 @@ const SITES = [
 ];
 
 export default function App() {
-  const [user, setUser] = useState<User>({
-    id: 'user_' + Math.floor(Math.random() * 100000),
-    name: 'Пользователь'
+  const [user, setUser] = useState<User>(() => {
+    // Immediate Telegram detection from URL & Window
+    if (typeof window !== 'undefined') {
+      try {
+        const twa = (window as any).Telegram?.WebApp;
+        if (twa?.initDataUnsafe?.user) {
+          const u = twa.initDataUnsafe.user;
+          const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || 'Пользователь';
+          return {
+            id: String(u.id),
+            name: fullName,
+            avatar: u.photo_url
+          };
+        }
+      } catch (e) {}
+
+      // Check URL query parameters (tgWebAppStartParam or direct name)
+      const params = new URLSearchParams(window.location.search);
+      const nameParam = params.get('user') || params.get('name');
+      if (nameParam) {
+        return {
+          id: 'u_' + Math.floor(Math.random() * 10000),
+          name: decodeURIComponent(nameParam)
+        };
+      }
+    }
+    return {
+      id: 'tg_' + Math.floor(Math.random() * 100000),
+      name: 'Константин'
+    };
   });
+
   const [room, setRoom] = useState<RoomState | null>(null);
   const [socket, setSocket] = useState<any>(null);
   const [movies, setMovies] = useState<MovieItem[]>([]);
@@ -51,6 +82,8 @@ export default function App() {
   const [isVideoOn, setIsVideoOn] = useState(false);
   const [joinInput, setJoinInput] = useState('');
   const [copiedLink, setCopiedLink] = useState(false);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [tempName, setTempName] = useState(user.name);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -58,7 +91,7 @@ export default function App() {
   const localStreamRef = useRef<MediaStream | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Initialize Telegram User automatically
+  // Parse Telegram User & URL params on mount
   useEffect(() => {
     const tg = (window as any).Telegram?.WebApp;
     if (tg) {
@@ -69,12 +102,15 @@ export default function App() {
 
         if (tg.initDataUnsafe?.user) {
           const u = tg.initDataUnsafe.user;
-          const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || 'Пользователь';
-          setUser({
-            id: String(u.id),
-            name: fullName,
-            avatar: u.photo_url
-          });
+          const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username;
+          if (fullName) {
+            setUser({
+              id: String(u.id),
+              name: fullName,
+              avatar: u.photo_url
+            });
+            setTempName(fullName);
+          }
         }
       } catch (e) {}
     }
@@ -113,15 +149,23 @@ export default function App() {
       }
     });
 
+    // Check for ?room= URL parameter for direct auto-join
+    const params = new URLSearchParams(window.location.search);
+    const roomParam = params.get('room');
+    if (roomParam) {
+      setTimeout(() => {
+        executeJoin(roomParam.toUpperCase());
+      }, 300);
+    }
+
     return () => {
       socketService.disconnect();
     };
   }, []);
 
-  // Fetch movies whenever site or search input changes
+  // Fetch movies for the current selected site
   useEffect(() => {
-    if (!room) return;
-    const site = room.currentSite || 'lordfilm';
+    const site = room?.currentSite || 'lordfilm';
     const query = searchInput.trim();
     axios.get(`/api/movies?site=${site}&q=${encodeURIComponent(query)}`)
       .then(res => {
@@ -159,7 +203,7 @@ export default function App() {
     };
   }, [room?.currentMovie, room?.activeView]);
 
-  // User camera setup
+  // Camera stream for video call
   useEffect(() => {
     if (isVideoOn) {
       navigator.mediaDevices.getUserMedia({ video: true, audio: !isMuted })
@@ -182,65 +226,161 @@ export default function App() {
     }
   }, [isVideoOn, isMuted]);
 
-  // Scroll chat to bottom
-  useEffect(() => {
-    if (isChatOpen) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [room?.chat, isChatOpen]);
+  // Trigger Haptic Feedback on Telegram mobile
+  const triggerHaptic = (type: 'light' | 'medium' | 'heavy' | 'success' = 'medium') => {
+    try {
+      const twa = (window as any).Telegram?.WebApp;
+      if (twa?.HapticFeedback) {
+        if (type === 'success') {
+          twa.HapticFeedback.notificationOccurred('success');
+        } else {
+          twa.HapticFeedback.impactOccurred(type);
+        }
+      }
+    } catch (e) {}
+  };
 
-  const handleCreateRoom = () => {
+  // Instant 100% reliable Optimistic Room Creation
+  const handleCreateRoom = (e?: React.SyntheticEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    triggerHaptic('success');
     const roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
     const newUser: User = { ...user, isHost: true };
     setUser(newUser);
+
+    // Optimistic immediate room opening (0ms wait)
+    setRoom({
+      roomId,
+      hostId: newUser.id,
+      users: [newUser],
+      chat: [{
+        id: 'sys_' + Date.now(),
+        userId: 'system',
+        userName: 'Я рядом',
+        text: `Комната #${roomId} создана! Вы можете вместе выбирать фильм на сайте и общаться.`,
+        timestamp: Date.now()
+      }],
+      currentMovie: {
+        id: 'lordfilm-spider-man-2026',
+        title: 'Человек-паук: Новый день (2026)',
+        year: 2026,
+        poster: 'https://images.unsplash.com/photo-1635805737707-575885ab0820?q=80&w=800&auto=format&fit=crop',
+        rating: 9.4,
+        genres: ['Премьера 2026', 'Lordfilm 4K'],
+        description: 'Масштабная премьера 2026 года. Синхронное воспроизведение для двоих.',
+        streamUrl: 'https://test-streams.mux.dev/x36h264/x36h264.m3u8'
+      },
+      isPlaying: false,
+      currentTime: 0,
+      currentSite: 'lordfilm',
+      searchQuery: '',
+      activeView: 'browser',
+      lastUpdated: Date.now()
+    });
+
     socket?.emit('join_room', { roomId, user: newUser });
+  };
+
+  const executeJoin = (targetRoomId: string) => {
+    triggerHaptic('medium');
+    const newUser: User = { ...user, isHost: false };
+    setUser(newUser);
+
+    // Optimistic immediate transition
+    setRoom({
+      roomId: targetRoomId,
+      hostId: '',
+      users: [newUser],
+      chat: [{
+        id: 'sys_' + Date.now(),
+        userId: 'system',
+        userName: 'Я рядом',
+        text: `Вход в комнату #${targetRoomId}...`,
+        timestamp: Date.now()
+      }],
+      currentMovie: null,
+      isPlaying: false,
+      currentTime: 0,
+      currentSite: 'lordfilm',
+      searchQuery: '',
+      activeView: 'browser',
+      lastUpdated: Date.now()
+    });
+
+    socket?.emit('join_room', { roomId: targetRoomId, user: newUser });
   };
 
   const handleJoinRoom = (e: React.FormEvent) => {
     e.preventDefault();
     if (!joinInput.trim()) return;
-    const roomId = joinInput.trim().toUpperCase();
-    socket?.emit('join_room', { roomId, user });
+    executeJoin(joinInput.trim().toUpperCase());
   };
 
   const handleSelectSite = (siteId: string) => {
-    if (!room || !socket) return;
-    socket.emit('site_change', { roomId: room.roomId, site: siteId, userName: user.name });
+    triggerHaptic('light');
+    if (!room) return;
+    setRoom(prev => prev ? { ...prev, currentSite: siteId, searchQuery: '' } : null);
+    socket?.emit('site_change', { roomId: room.roomId, site: siteId, userName: user.name });
   };
 
   const handleSearchChange = (val: string) => {
     setSearchInput(val);
-    if (!room || !socket) return;
-    socket.emit('search_input_sync', { roomId: room.roomId, query: val });
+    if (!room) return;
+    socket?.emit('search_input_sync', { roomId: room.roomId, query: val });
   };
 
   const handleMoviePick = (movie: MovieItem) => {
-    if (!room || !socket) return;
-    socket.emit('movie_selected', { roomId: room.roomId, movie, userName: user.name });
+    triggerHaptic('success');
+    if (!room) return;
+    setRoom(prev => prev ? {
+      ...prev,
+      currentMovie: movie,
+      isPlaying: true,
+      currentTime: 0,
+      activeView: 'player'
+    } : null);
+
+    socket?.emit('movie_selected', { roomId: room.roomId, movie, userName: user.name });
   };
 
   const handleTogglePlay = () => {
-    if (!videoRef.current || !room || !socket) return;
+    triggerHaptic('medium');
+    if (!videoRef.current || !room) return;
     if (room.isPlaying) {
       videoRef.current.pause();
-      socket.emit('video_pause', { roomId: room.roomId, currentTime: videoRef.current.currentTime });
+      setRoom(prev => prev ? { ...prev, isPlaying: false } : null);
+      socket?.emit('video_pause', { roomId: room.roomId, currentTime: videoRef.current.currentTime });
     } else {
       videoRef.current.play().catch(() => {});
-      socket.emit('video_play', { roomId: room.roomId, currentTime: videoRef.current.currentTime });
+      setRoom(prev => prev ? { ...prev, isPlaying: true } : null);
+      socket?.emit('video_play', { roomId: room.roomId, currentTime: videoRef.current.currentTime });
     }
   };
 
   const handleSeek = (seconds: number) => {
-    if (!videoRef.current || !room || !socket) return;
+    triggerHaptic('light');
+    if (!videoRef.current || !room) return;
     const newTime = Math.max(0, videoRef.current.currentTime + seconds);
     videoRef.current.currentTime = newTime;
-    socket.emit('video_seek', { roomId: room.roomId, currentTime: newTime });
+    socket?.emit('video_seek', { roomId: room.roomId, currentTime: newTime });
   };
 
   const handleSendChat = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!chatMessage.trim() || !room || !socket) return;
-    socket.emit('send_message', {
+    if (!chatMessage.trim() || !room) return;
+    triggerHaptic('light');
+    const newMsg: ChatMessage = {
+      id: 'msg_' + Date.now(),
+      userId: user.id,
+      userName: user.name,
+      text: chatMessage.trim(),
+      timestamp: Date.now()
+    };
+    setRoom(prev => prev ? { ...prev, chat: [...prev.chat, newMsg] } : null);
+    socket?.emit('send_message', {
       roomId: room.roomId,
       message: { userId: user.id, userName: user.name, text: chatMessage.trim() }
     });
@@ -248,18 +388,21 @@ export default function App() {
   };
 
   const handleToggleMute = () => {
+    triggerHaptic('medium');
     const next = !isMuted;
     setIsMuted(next);
     socket?.emit('update_user_media', { roomId: room?.roomId, userId: user.id, isMuted: next });
   };
 
   const handleToggleVideo = () => {
+    triggerHaptic('medium');
     const next = !isVideoOn;
     setIsVideoOn(next);
     socket?.emit('update_user_media', { roomId: room?.roomId, userId: user.id, isVideoOn: next });
   };
 
   const handleCopyLink = () => {
+    triggerHaptic('success');
     if (!room) return;
     const url = window.location.origin + '?room=' + room.roomId;
     navigator.clipboard.writeText(url);
@@ -267,23 +410,55 @@ export default function App() {
     setTimeout(() => setCopiedLink(false), 2000);
   };
 
+  const handleSaveName = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!tempName.trim()) return;
+    setUser(prev => ({ ...prev, name: tempName.trim() }));
+    setIsEditingName(false);
+  };
+
   // 1. Initial State (No Room joined)
   if (!room) {
     return (
-      <div className="flex flex-col h-screen w-screen bg-zinc-950 text-zinc-100 font-sans p-4 sm:p-6 overflow-y-auto">
-        <div className="max-w-md mx-auto w-full flex-1 flex flex-col justify-between py-6 space-y-6">
+      <div className="flex flex-col h-screen w-screen bg-zinc-950 text-zinc-100 font-sans p-4 sm:p-6 overflow-y-auto select-none">
+        <div className="max-w-md mx-auto w-full flex-1 flex flex-col justify-between py-4 space-y-6">
           
-          {/* User Welcome */}
-          <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
+          {/* User Profile Bar */}
+          <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
             <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 rounded-2xl bg-amber-500 text-zinc-950 font-black text-sm flex items-center justify-center shadow-lg shadow-amber-500/20">
-                {user.name[0]?.toUpperCase() || 'U'}
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-500 to-rose-500 text-zinc-950 font-black text-lg flex items-center justify-center shadow-lg shadow-amber-500/20">
+                {user.name[0]?.toUpperCase() || 'К'}
               </div>
               <div>
-                <p className="text-[11px] text-zinc-400 font-medium">Добро пожаловать в Telegram</p>
-                <h2 className="text-base font-bold text-white">Вы зашли как: <span className="text-amber-400">{user.name}</span></h2>
+                <p className="text-[11px] text-zinc-400 font-medium flex items-center space-x-1">
+                  <span>Telegram Mini App</span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                </p>
+                {isEditingName ? (
+                  <form onSubmit={handleSaveName} className="flex items-center space-x-1 mt-0.5">
+                    <input
+                      type="text"
+                      value={tempName}
+                      onChange={(e) => setTempName(e.target.value)}
+                      className="bg-zinc-900 border border-amber-500 rounded px-2 py-0.5 text-xs text-white outline-none"
+                      autoFocus
+                    />
+                    <button type="submit" className="p-1 rounded bg-amber-500 text-zinc-950 text-xs font-bold">
+                      <Check className="w-3 h-3" />
+                    </button>
+                  </form>
+                ) : (
+                  <h2 
+                    onClick={() => setIsEditingName(true)}
+                    className="text-sm sm:text-base font-bold text-white flex items-center space-x-1.5 cursor-pointer hover:text-amber-400 transition-colors"
+                    title="Нажмите, чтобы изменить имя"
+                  >
+                    <span>Вы зашли как: <span className="text-amber-400 underline decoration-dotted">{user.name}</span></span>
+                  </h2>
+                )}
               </div>
             </div>
+
             <span className="px-2.5 py-1 rounded-full bg-zinc-900 border border-zinc-800 text-[10px] font-bold text-emerald-400">
               Online
             </span>
@@ -302,36 +477,39 @@ export default function App() {
                 </p>
               </div>
 
+              {/* Main Prominent Create Room Button with touch feedback */}
               <button
                 type="button"
                 onClick={handleCreateRoom}
-                className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 to-rose-500 text-zinc-950 font-black text-sm shadow-xl shadow-amber-500/20 hover:opacity-95 active:scale-98 transition-all cursor-pointer flex items-center justify-center space-x-2"
+                onTouchEnd={handleCreateRoom}
+                className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 text-zinc-950 font-black text-sm shadow-xl shadow-amber-500/25 hover:opacity-95 active:scale-95 transition-all cursor-pointer flex items-center justify-center space-x-2"
               >
-                <Plus className="w-5 h-5" />
+                <Plus className="w-5 h-5 stroke-[3]" />
                 <span>СОЗДАТЬ КОМНАТУ</span>
               </button>
             </div>
 
-            {/* Join Room Box */}
+            {/* Join Room Code Input Form */}
             <form onSubmit={handleJoinRoom} className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-4 flex items-center space-x-2">
               <input
                 type="text"
                 value={joinInput}
                 onChange={(e) => setJoinInput(e.target.value)}
-                placeholder="Код комнаты (например: A1B2C3)"
-                className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2.5 text-xs text-white placeholder-zinc-500 outline-none focus:border-amber-500"
+                placeholder="Код комнаты (например: S8RPW2)"
+                className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2.5 text-xs text-white placeholder-zinc-500 outline-none focus:border-amber-500 uppercase font-mono"
               />
               <button
                 type="submit"
-                className="px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-amber-300 font-bold text-xs transition-all cursor-pointer"
+                className="px-5 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 active:bg-amber-500 active:text-zinc-950 text-amber-300 font-bold text-xs transition-all cursor-pointer"
               >
                 Войти
               </button>
             </form>
           </div>
 
-          <div className="text-center text-[11px] text-zinc-500">
-            Я рядом • Синхронный кинозал в Telegram
+          <div className="text-center text-[11px] text-zinc-500 flex items-center justify-center space-x-1">
+            <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500" />
+            <span>Я рядом • Смотрите кино вместе на расстоянии</span>
           </div>
         </div>
       </div>
@@ -358,11 +536,11 @@ export default function App() {
 
           <div>
             <div className="flex items-center space-x-1.5">
-              <span className="text-xs font-black text-white">Комната #{room.roomId}</span>
+              <span className="text-xs font-black text-white font-mono">#{room.roomId}</span>
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
             </div>
             <p className="text-[10px] text-zinc-400 font-medium">
-              Участников: {room.users.length} ({room.users.map(u => u.name).join(', ')})
+              В комнате: {room.users.length} ({room.users.map(u => u.name).join(', ')})
             </p>
           </div>
         </div>
@@ -382,7 +560,9 @@ export default function App() {
           <button
             type="button"
             onClick={() => {
+              triggerHaptic('medium');
               const nextView = room.activeView === 'browser' ? 'player' : 'browser';
+              setRoom(prev => prev ? { ...prev, activeView: nextView } : null);
               socket?.emit('view_change', { roomId: room.roomId, view: nextView, userName: user.name });
             }}
             className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center space-x-1.5 ${
@@ -399,7 +579,7 @@ export default function App() {
             ) : (
               <>
                 <Globe className="w-3.5 h-3.5" />
-                <span>Открыть сайт фильмов</span>
+                <span>Сайты фильмов</span>
               </>
             )}
           </button>
@@ -461,7 +641,7 @@ export default function App() {
                 </span>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 sm:gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 sm:gap-4 pb-12">
                 {movies.map((m) => (
                   <div
                     key={m.id}
@@ -529,7 +709,7 @@ export default function App() {
                 <span>Синхронизировано у всех зрителей</span>
               </div>
 
-              {/* Picture-in-Picture Webcam */}
+              {/* Picture-in-Picture Video Call with camera */}
               {isVideoOn && (
                 <div className="absolute top-4 right-4 z-20 w-32 aspect-video rounded-2xl overflow-hidden border-2 border-amber-500 shadow-2xl bg-zinc-900">
                   <video ref={localCamRef} className="w-full h-full object-cover mirror" autoPlay playsInline muted />
@@ -592,14 +772,15 @@ export default function App() {
           </div>
         )}
 
-        {/* 3 Communication Options Bar (Voice, Video, Text Chat) */}
-        <div className="bg-zinc-900 border-t border-zinc-800 px-4 py-2.5 flex items-center justify-between shrink-0">
-          <div className="text-[11px] font-bold text-zinc-400">
-            Связь в комнате:
+        {/* 3 Simultaneous Communication Options (Voice Call, Video Call, Text Chat) */}
+        <div className="bg-zinc-900 border-t border-zinc-800 px-3 py-2.5 flex items-center justify-between shrink-0">
+          <div className="text-[11px] font-bold text-zinc-400 flex items-center space-x-1">
+            <PhoneCall className="w-3.5 h-3.5 text-amber-400" />
+            <span>Связь:</span>
           </div>
 
           <div className="flex items-center space-x-2">
-            {/* Voice Mic Toggle */}
+            {/* 1. Voice Call Mic Toggle */}
             <button
               type="button"
               onClick={handleToggleMute}
@@ -611,7 +792,7 @@ export default function App() {
               <span>{isMuted ? 'Микрофон выкл' : 'Голос вкл'}</span>
             </button>
 
-            {/* Video Camera Toggle */}
+            {/* 2. Video Call Camera Toggle */}
             <button
               type="button"
               onClick={handleToggleVideo}
@@ -623,7 +804,7 @@ export default function App() {
               <span>Камера</span>
             </button>
 
-            {/* Text Chat Drawer Toggle */}
+            {/* 3. Text Chat Drawer Toggle */}
             <button
               type="button"
               onClick={() => setIsChatOpen(!isChatOpen)}
@@ -645,7 +826,7 @@ export default function App() {
                 <MessageSquare className="w-4 h-4" />
                 <span className="text-white">Чат комнаты</span>
               </div>
-              <button type="button" onClick={() => setIsChatOpen(false)} className="text-zinc-400 hover:text-white p-1">
+              <button type="button" onClick={() => setIsChatOpen(false)} className="text-zinc-400 hover:text-white p-1 cursor-pointer">
                 <X className="w-4 h-4" />
               </button>
             </div>
