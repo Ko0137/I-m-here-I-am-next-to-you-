@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
-import { Play, Pause, Volume2, VolumeX, Maximize, RotateCcw, RotateCw, Film, Radio } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, Maximize, RotateCcw, RotateCw, Film, Radio, Layers, Sparkles, Tv, ExternalLink } from 'lucide-react';
 import { Movie, RoomState, User } from '../types';
 import { ChatToggleButton } from './buttons/ChatToggleButton';
 import { MicToggleButton } from './buttons/MicToggleButton';
@@ -39,25 +39,44 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [volume, setVolume] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
   const [showControls, setShowControls] = useState(true);
+  const [selectedEpisodeIdx, setSelectedEpisodeIdx] = useState(0);
   const controlsTimeoutRef = useRef<any>(null);
 
   const movie = room.movie;
+  const currentStreamUrl = movie?.episodes?.[selectedEpisodeIdx]?.streamUrl || movie?.streamUrl || '';
 
-  // Initialize HLS.js
+  // Determine if stream is a YouTube embed
+  const isYouTube = currentStreamUrl.includes('youtube.com') || currentStreamUrl.includes('youtu.be');
+  let youtubeVideoId = '';
+  if (isYouTube) {
+    if (currentStreamUrl.includes('v=')) {
+      try {
+        youtubeVideoId = new URL(currentStreamUrl).searchParams.get('v') || '';
+      } catch (e) {}
+    } else if (currentStreamUrl.includes('youtu.be/')) {
+      youtubeVideoId = currentStreamUrl.split('youtu.be/')[1]?.split('?')[0] || '';
+    } else if (currentStreamUrl.includes('embed/')) {
+      youtubeVideoId = currentStreamUrl.split('embed/')[1]?.split('?')[0] || '';
+    }
+  }
+
+  // Initialize HLS.js or HTML5 Video
   useEffect(() => {
+    if (isYouTube) return;
     const video = videoRef.current;
-    if (!video || !movie?.streamUrl) return;
+    if (!video || !currentStreamUrl) return;
 
-    if (Hls.isSupported()) {
+    if (Hls.isSupported() && (currentStreamUrl.includes('.m3u8') || !currentStreamUrl.includes('.mp4'))) {
       if (hlsRef.current) {
         hlsRef.current.destroy();
       }
       const hls = new Hls({
         xhrSetup: (xhr) => {
           xhr.withCredentials = false;
-        }
+        },
+        enableWorker: true
       });
-      hls.loadSource(movie.streamUrl);
+      hls.loadSource(currentStreamUrl);
       hls.attachMedia(video);
       hlsRef.current = hls;
 
@@ -66,8 +85,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           video.play().catch(() => {});
         }
       });
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = movie.streamUrl;
+    } else {
+      video.src = currentStreamUrl;
       if (room.isPlaying) {
         video.play().catch(() => {});
       }
@@ -78,7 +97,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         hlsRef.current.destroy();
       }
     };
-  }, [movie?.streamUrl]);
+  }, [currentStreamUrl, isYouTube]);
 
   // Synchronize playback events from socket
   useEffect(() => {
@@ -174,6 +193,22 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
+  const toggleMute = () => {
+    if (videoRef.current) {
+      videoRef.current.muted = !isMuted;
+      setIsMuted(!isMuted);
+    }
+  };
+
+  const toggleFullscreen = () => {
+    const elem = document.documentElement;
+    if (!document.fullscreenElement) {
+      elem.requestFullscreen().catch(() => {});
+    } else {
+      document.exitFullscreen().catch(() => {});
+    }
+  };
+
   return (
     <div
       onMouseMove={handleMouseMove}
@@ -182,182 +217,231 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     >
       {/* Video Container */}
       <div className="relative flex-1 bg-black flex items-center justify-center overflow-hidden">
-        <video
-          ref={videoRef}
-          onTimeUpdate={handleTimeUpdate}
-          onEnded={() => setIsPlaying(false)}
-          className="w-full h-full object-contain"
-          playsInline
-        />
+        {isYouTube && youtubeVideoId ? (
+          <div className="w-full h-full relative">
+            <iframe
+              src={`https://www.youtube.com/embed/${youtubeVideoId}?autoplay=1&playsinline=1&rel=0`}
+              title="YouTube Player"
+              className="w-full h-full border-none"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+            />
+          </div>
+        ) : (
+          <video
+            ref={videoRef}
+            onTimeUpdate={handleTimeUpdate}
+            onEnded={() => setIsPlaying(false)}
+            className="w-full h-full object-contain"
+            playsInline
+          />
+        )}
 
         {/* Sync Status Badge */}
         <div className="absolute top-4 left-4 z-20 flex items-center space-x-2 rounded-full bg-stone-950/80 backdrop-blur-md border border-stone-800 px-3 py-1 text-xs font-semibold text-amber-400">
           <Radio className="w-3.5 h-3.5 animate-pulse text-amber-400" />
-          <span>Синхронизировано для всех гостей</span>
+          <span>Синхронизировано в комнате</span>
         </div>
 
-        {/* Video Overlay Play/Pause Button */}
-        <div
-          onClick={togglePlay}
-          className={`absolute inset-0 z-10 flex items-center justify-center bg-stone-950/30 transition-opacity cursor-pointer ${
-            showControls || !isPlaying ? 'opacity-100' : 'opacity-0 pointer-events-none'
-          }`}
-        >
-          <div className="h-16 w-16 md:h-20 md:w-20 rounded-full bg-amber-500/90 hover:bg-amber-400 text-stone-950 flex items-center justify-center shadow-2xl shadow-amber-500/30 transform active:scale-90 transition-transform">
-            {isPlaying ? (
-              <Pause className="w-8 h-8 md:w-10 md:h-10 fill-stone-950" />
-            ) : (
-              <Play className="w-8 h-8 md:w-10 md:h-10 fill-stone-950 ml-1" />
-            )}
+        {/* Video Overlay Play/Pause Button for HTML5 Video */}
+        {!isYouTube && (
+          <div
+            onClick={togglePlay}
+            className={`absolute inset-0 z-10 flex items-center justify-center bg-stone-950/30 transition-opacity cursor-pointer ${
+              showControls || !isPlaying ? 'opacity-100' : 'opacity-0 pointer-events-none'
+            }`}
+          >
+            <div className="h-16 w-16 md:h-20 md:w-20 rounded-full bg-amber-500/90 hover:bg-amber-400 text-stone-950 flex items-center justify-center shadow-2xl shadow-amber-500/30 transform active:scale-90 transition-transform">
+              {isPlaying ? (
+                <Pause className="w-8 h-8 md:w-10 md:h-10 fill-stone-950" />
+              ) : (
+                <Play className="w-8 h-8 md:w-10 md:h-10 fill-stone-950 ml-1" />
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
-        {/* Bottom Video Controls Bar */}
-        <div
-          className={`absolute bottom-0 inset-x-0 z-20 bg-gradient-to-t from-stone-950 via-stone-950/80 to-transparent p-4 md:p-6 transition-opacity duration-300 ${
-            showControls || !isPlaying ? 'opacity-100' : 'opacity-0 pointer-events-none'
-          }`}
-        >
-          {/* Timeline Bar */}
-          <div className="flex items-center space-x-3 mb-3">
-            <span className="text-xs font-mono text-stone-300 w-10 text-right">
-              {formatTime(currentTime)}
-            </span>
-            <input
-              type="range"
-              min="0"
-              max={duration || 100}
-              value={currentTime}
-              onChange={handleSeekChange}
-              className="flex-1 h-1.5 bg-stone-800 rounded-lg appearance-none cursor-pointer accent-amber-500 hover:accent-amber-400"
-            />
-            <span className="text-xs font-mono text-stone-400 w-10">
-              {formatTime(duration)}
-            </span>
-          </div>
+        {/* Bottom Video Controls Bar for HTML5 Video */}
+        {!isYouTube && (
+          <div
+            className={`absolute bottom-0 inset-x-0 z-20 bg-gradient-to-t from-stone-950 via-stone-950/80 to-transparent p-4 md:p-6 transition-opacity duration-300 ${
+              showControls || !isPlaying ? 'opacity-100' : 'opacity-0 pointer-events-none'
+            }`}
+          >
+            {/* Timeline Bar */}
+            <div className="flex items-center space-x-3 mb-3">
+              <span className="text-xs font-mono text-stone-300 w-10 text-right">
+                {formatTime(currentTime)}
+              </span>
+              <input
+                type="range"
+                min="0"
+                max={duration || 100}
+                value={currentTime}
+                onChange={handleSeekChange}
+                className="flex-1 h-1.5 bg-stone-800 rounded-lg appearance-none cursor-pointer accent-amber-500 hover:accent-amber-400"
+              />
+              <span className="text-xs font-mono text-stone-400 w-10">
+                {formatTime(duration)}
+              </span>
+            </div>
 
-          {/* Control Buttons */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2 md:space-x-3">
-              <button
-                type="button"
-                onClick={togglePlay}
-                className="p-2 rounded-xl bg-stone-900/80 hover:bg-stone-800 text-amber-400 transition-colors"
-              >
-                {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 fill-amber-400" />}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => skipTime(-10)}
-                className="p-2 rounded-xl bg-stone-900/80 hover:bg-stone-800 text-stone-300 transition-colors"
-                title="Назад на 10 сек"
-              >
-                <RotateCcw className="w-4 h-4" />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => skipTime(10)}
-                className="p-2 rounded-xl bg-stone-900/80 hover:bg-stone-800 text-stone-300 transition-colors"
-                title="Вперед на 10 сек"
-              >
-                <RotateCw className="w-4 h-4" />
-              </button>
-
-              <div className="hidden sm:flex items-center space-x-2 pl-2">
+            {/* Control Buttons */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2 md:space-x-3">
                 <button
                   type="button"
-                  onClick={() => {
-                    if (videoRef.current) {
-                      videoRef.current.muted = !isMuted;
-                      setIsMuted(!isMuted);
-                    }
-                  }}
-                  className="text-stone-400 hover:text-white"
+                  onClick={togglePlay}
+                  className="p-2 rounded-xl bg-stone-900/80 hover:bg-stone-800 text-amber-400 transition-colors"
                 >
-                  {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                  {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 fill-amber-400" />}
                 </button>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={isMuted ? 0 : volume}
-                  onChange={(e) => {
-                    const val = parseFloat(e.target.value);
-                    setVolume(val);
-                    setIsMuted(val === 0);
-                    if (videoRef.current) videoRef.current.volume = val;
-                  }}
-                  className="w-16 h-1 bg-stone-800 rounded appearance-none accent-amber-500"
-                />
-              </div>
-            </div>
 
-            {/* Right: Fullscreen & Movie Info */}
-            <div className="flex items-center space-x-2">
-              <div className="text-right hidden sm:block">
-                <p className="text-xs font-bold text-stone-200 truncate max-w-xs">{movie?.title}</p>
-                <p className="text-[10px] text-amber-400/80 font-mono">1080p HD • Синхронный плеер</p>
+                <button
+                  type="button"
+                  onClick={() => skipTime(-10)}
+                  className="p-2 rounded-xl text-stone-300 hover:text-white hover:bg-stone-800/80 transition-colors"
+                  title="Назад на 10 секунд"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => skipTime(10)}
+                  className="p-2 rounded-xl text-stone-300 hover:text-white hover:bg-stone-800/80 transition-colors"
+                  title="Вперед на 10 секунд"
+                >
+                  <RotateCw className="w-4 h-4" />
+                </button>
+
+                <div className="flex items-center space-x-1.5 pl-2">
+                  <button
+                    type="button"
+                    onClick={toggleMute}
+                    className="p-2 rounded-xl text-stone-300 hover:text-white hover:bg-stone-800/80 transition-colors"
+                  >
+                    {isMuted ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4" />}
+                  </button>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={isMuted ? 0 : volume}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value);
+                      setVolume(val);
+                      if (videoRef.current) {
+                        videoRef.current.volume = val;
+                        videoRef.current.muted = false;
+                      }
+                      setIsMuted(false);
+                    }}
+                    className="w-16 md:w-24 h-1 bg-stone-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                  />
+                </div>
               </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  if (videoRef.current) {
-                    if (videoRef.current.requestFullscreen) {
-                      videoRef.current.requestFullscreen();
-                    }
-                  }
-                }}
-                className="p-2 rounded-xl bg-stone-900/80 hover:bg-stone-800 text-stone-300 transition-colors"
-                title="Во весь экран"
-              >
-                <Maximize className="w-4 h-4" />
-              </button>
+              {/* Center Movie Info */}
+              <div className="hidden sm:flex flex-col items-center">
+                <span className="text-xs font-bold text-white max-w-xs truncate">{movie?.title}</span>
+                <span className="text-[10px] text-amber-400/80 font-mono">1080p Ultra HD • Full Synchronized</span>
+              </div>
+
+              {/* Right Controls */}
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={toggleFullscreen}
+                  className="p-2 rounded-xl text-stone-300 hover:text-white hover:bg-stone-800/80 transition-colors"
+                >
+                  <Maximize className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
 
-      {/* Floating Bottom Social Interaction Bar */}
-      <div className="h-18 bg-stone-950/95 border-t border-stone-800/80 px-4 md:px-8 flex items-center justify-between shrink-0">
-        <div className="flex items-center space-x-2">
-          <MicToggleButton
-            isMuted={currentUser?.isMuted ?? true}
-            onToggle={onToggleMute}
-          />
-          <VideoToggleButton
-            isVideoOn={currentUser?.isVideoOn ?? false}
-            onToggle={onToggleVideo}
-          />
+      {/* Episodes / Seasons Bar (If available) */}
+      {movie?.episodes && movie.episodes.length > 1 && (
+        <div className="bg-stone-900 border-t border-stone-800 px-4 py-2 flex items-center space-x-2 overflow-x-auto scrollbar-none">
+          <span className="text-xs font-bold text-stone-400 shrink-0 flex items-center space-x-1">
+            <Layers className="w-3.5 h-3.5 text-amber-400" />
+            <span>Серии:</span>
+          </span>
+          {movie.episodes.map((ep, idx) => (
+            <button
+              key={idx}
+              type="button"
+              onClick={() => setSelectedEpisodeIdx(idx)}
+              className={`px-3 py-1 rounded-xl text-xs font-semibold shrink-0 transition-all ${
+                selectedEpisodeIdx === idx
+                  ? 'bg-amber-500 text-stone-950 shadow-md'
+                  : 'bg-stone-800 text-stone-300 hover:bg-stone-700'
+              }`}
+            >
+              {ep.title}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Floating Room Control Bar */}
+      <div className="bg-stone-900/95 border-t border-stone-800 p-3 sm:p-4 flex items-center justify-between">
+        <div className="flex items-center space-x-3">
+          <div className="h-10 w-10 rounded-xl overflow-hidden bg-stone-800 shrink-0 border border-stone-700">
+            <img src={movie?.poster} alt={movie?.title} className="w-full h-full object-cover" />
+          </div>
+          <div className="flex flex-col">
+            <div className="flex items-center space-x-2">
+              <span className="text-xs sm:text-sm font-bold text-stone-100">{movie?.title}</span>
+              <span className="text-[10px] font-bold bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">
+                {movie?.rating ? `★ ${movie.rating}` : 'HD'}
+              </span>
+            </div>
+            <span className="text-[11px] text-stone-400 truncate max-w-[200px] sm:max-w-md">
+              {movie?.genres?.join(' • ') || 'Совместный просмотр'}
+            </span>
+          </div>
         </div>
 
-        <div className="flex items-center space-x-2 md:space-x-3">
+        {/* Action Buttons */}
+        <div className="flex items-center space-x-2 sm:space-x-3">
+          <button
+            type="button"
+            onClick={onOpenSearch}
+            className="flex items-center space-x-1.5 px-3 py-2 rounded-2xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-400 text-xs font-bold transition-all shadow-sm"
+          >
+            <Film className="w-4 h-4" />
+            <span className="hidden sm:inline">Сменить фильм</span>
+          </button>
+
           {onToggleBrowser && (
             <button
               type="button"
               onClick={onToggleBrowser}
-              className={`px-3 py-2 rounded-2xl border text-xs font-bold flex items-center space-x-1.5 transition-all shadow-md cursor-pointer select-none ${
+              className={`flex items-center space-x-1.5 px-3 py-2 rounded-2xl border text-xs font-bold transition-all shadow-sm ${
                 isBrowserActive
-                  ? 'bg-amber-500 text-stone-950 border-amber-400 shadow-amber-500/20'
-                  : 'bg-stone-900 hover:bg-stone-800 text-amber-300 border-stone-800'
+                  ? 'bg-amber-500 text-stone-950 border-amber-400 font-black'
+                  : 'bg-stone-800 hover:bg-stone-700 text-stone-200 border-stone-700'
               }`}
             >
-              <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
-              <span>{isBrowserActive ? 'Вернуться к фильму' : 'Совместный браузер'}</span>
+              <Tv className="w-4 h-4" />
+              <span className="hidden sm:inline">Браузер сайтов</span>
             </button>
           )}
 
-          <button
-            type="button"
-            onClick={onOpenSearch}
-            className="px-3.5 py-2.5 rounded-2xl bg-stone-900 hover:bg-stone-800 border border-stone-800 text-stone-200 hover:text-white font-semibold text-xs flex items-center space-x-2 transition-all"
-          >
-            <Film className="w-4 h-4 text-amber-400" />
-            <span className="hidden sm:inline">Каталог фильмов</span>
-          </button>
+          <MicToggleButton
+            isMuted={currentUser?.isMuted || false}
+            onToggle={onToggleMute}
+          />
+
+          <VideoToggleButton
+            isVideoOn={currentUser?.isVideoOn || false}
+            onToggle={onToggleVideo}
+          />
 
           <ChatToggleButton
             isOpen={isChatOpen}

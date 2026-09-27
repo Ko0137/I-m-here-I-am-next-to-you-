@@ -317,6 +317,8 @@ export default function App() {
                 currentUser={user}
                 socket={socket}
                 onClose={() => handleToggleBrowser()}
+                onOpenSearch={() => setIsSearchOpen(true)}
+                onSelectMovie={handleSelectMovie}
               />
             ) : (
               <VideoPlayer

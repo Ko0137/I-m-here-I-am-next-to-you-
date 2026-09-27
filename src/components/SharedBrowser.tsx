@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Globe, ArrowLeft, ArrowRight, RotateCw, ExternalLink, Users, Sparkles, Shield, Compass, Search } from 'lucide-react';
-import { RoomState, User } from '../types';
+import { Globe, ArrowLeft, ArrowRight, RotateCw, ExternalLink, Users, Sparkles, Shield, Compass, Search, Play, Film, Link2 } from 'lucide-react';
+import { RoomState, User, Movie } from '../types';
 import { appEventBus } from '../services/eventBus';
 
 interface SharedBrowserProps {
@@ -8,28 +8,34 @@ interface SharedBrowserProps {
   currentUser: User | null;
   socket: any;
   onClose: () => void;
+  onOpenSearch?: () => void;
+  onSelectMovie?: (movie: Movie) => void;
 }
 
 const POPULAR_SITES = [
-  { name: 'Google Поиск', url: 'https://google.com', badge: 'Поиск фильмов' },
-  { name: 'КиноПоиск', url: 'https://www.kinopoisk.ru', badge: 'Каталог' },
-  { name: 'Kinogo', url: 'https://kinogo.mu', badge: 'Онлайн' },
-  { name: 'Lordfilm', url: 'https://lordfilm.md', badge: 'Сериалы' },
-  { name: 'YouTube', url: 'https://youtube.com', badge: 'Видео' }
+  { name: 'КиноКаталог 4K', url: 'https://user.kinogo.mu', badge: '100+ Новинок' },
+  { name: 'YouTube Тренды', url: 'https://youtube.com', badge: 'Видео' },
+  { name: 'Lordfilm HD', url: 'https://mg.lordfilm.md/podborki/', badge: 'Сериалы' },
+  { name: 'Google Поиск', url: 'https://google.com', badge: 'Поиск' }
 ];
 
 export const SharedBrowser: React.FC<SharedBrowserProps> = ({
   room,
   currentUser,
   socket,
-  onClose
+  onClose,
+  onOpenSearch,
+  onSelectMovie
 }) => {
   const browserState = room.sharedBrowser;
-  const initialUrl = browserState?.currentUrl || 'https://google.com';
+  const initialUrl = browserState?.currentUrl || 'https://user.kinogo.mu';
 
   const [inputUrl, setInputUrl] = useState(initialUrl);
   const [currentUrl, setCurrentUrl] = useState(initialUrl);
   const [isLoading, setIsLoading] = useState(false);
+  const [videoDetected, setVideoDetected] = useState(false);
+  const [customStreamModal, setCustomStreamModal] = useState(false);
+  const [customStreamInput, setCustomStreamInput] = useState('');
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const isController = browserState ? browserState.controllerId === currentUser?.id : true;
@@ -43,6 +49,7 @@ export const SharedBrowser: React.FC<SharedBrowserProps> = ({
       setCurrentUrl(data.url);
       setInputUrl(data.url);
       setIsLoading(true);
+      setVideoDetected(false);
     };
 
     const handleRemoteScroll = (data: { scrollY: number }) => {
@@ -66,39 +73,51 @@ export const SharedBrowser: React.FC<SharedBrowserProps> = ({
   // Listen for navigation & scroll messages from inside proxy iframe
   useEffect(() => {
     const handleWindowMessage = (e: MessageEvent) => {
-      if (e.data?.type === 'BROWSER_NAVIGATE') {
+      if (!e.data) return;
+
+      if (e.data.type === 'BROWSER_NAVIGATE') {
         const nextUrl = e.data.url;
         handleNavigate(nextUrl);
       } else if (e.data?.type === 'BROWSER_SCROLL') {
         if (socket && room) {
           socket.emit('browser_scroll', { roomId: room.roomId, scrollY: e.data.scrollY });
         }
+      } else if (e.data.type === 'VIDEO_FOUND_ON_PAGE') {
+        setVideoDetected(true);
+      } else if (e.data.type === 'LAUNCH_DEFAULT_STREAM') {
+        handlePlayCurrentAsMovie(e.data.url || currentUrl);
+      } else if (e.data.type === 'OPEN_SEARCH_MODAL') {
+        if (onOpenSearch) onOpenSearch();
       }
     };
 
     window.addEventListener('message', handleWindowMessage);
     return () => window.removeEventListener('message', handleWindowMessage);
-  }, [socket, room, currentUser]);
+  }, [socket, room, currentUser, currentUrl]);
 
   const handleNavigate = (targetUrl: string) => {
     let clean = targetUrl.trim();
     if (!clean) return;
 
+    // Avoid recursive loading of current host
+    if (clean.includes(window.location.host) || clean.includes('/api/proxy-page')) {
+      clean = 'https://google.com';
+    }
+
     // Natural language / Russian query recognition
     const lower = clean.toLowerCase();
     if (lower.includes('киного') || lower.includes('kinogo')) {
-      clean = 'https://kinogo.mu';
+      clean = 'https://user.kinogo.mu';
     } else if (lower.includes('лордфильм') || lower.includes('lordfilm')) {
-      clean = 'https://lordfilm.md';
+      clean = 'https://mg.lordfilm.md/podborki/';
     } else if (lower.includes('ютуб') || lower.includes('youtube')) {
-      clean = 'https://m.youtube.com';
+      clean = 'https://youtube.com';
     } else if (lower.includes('кинопоиск') || lower.includes('kinopoisk')) {
       clean = 'https://www.kinopoisk.ru';
     } else if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
       if (clean.includes('.') && !clean.includes(' ')) {
         clean = 'https://' + clean;
       } else {
-        // Direct search across movie engines
         clean = `https://www.google.com/search?q=${encodeURIComponent(clean)}`;
       }
     }
@@ -106,6 +125,7 @@ export const SharedBrowser: React.FC<SharedBrowserProps> = ({
     setCurrentUrl(clean);
     setInputUrl(clean);
     setIsLoading(true);
+    setVideoDetected(false);
 
     appEventBus.emit('BROWSER_NAVIGATED', { url: clean });
 
@@ -119,16 +139,36 @@ export const SharedBrowser: React.FC<SharedBrowserProps> = ({
     }
   };
 
-  const handleTakeControl = () => {
-    if (socket && room && currentUser) {
-      socket.emit('browser_navigate', {
-        roomId: room.roomId,
-        url: currentUrl,
-        userId: currentUser.id,
-        userName: currentUser.name
-      });
-      appEventBus.emit('SUCCESS_FEEDBACK', 'Вы взяли управление браузером');
+  const handlePlayCurrentAsMovie = (urlToPlay?: string) => {
+    const stream = urlToPlay || currentUrl;
+    let movieTitle = 'Онлайн Видеопоток';
+    try {
+      const parsed = new URL(stream);
+      movieTitle = `Видео: ${parsed.hostname}`;
+    } catch (e) {}
+
+    const generatedMovie: Movie = {
+      id: 'custom_' + Date.now(),
+      title: movieTitle,
+      year: 2026,
+      poster: 'https://images.unsplash.com/photo-1536440136628-849c177e76a1?q=80&w=800&auto=format&fit=crop',
+      description: `Синхронный видеопоток с веб-страницы: ${stream}`,
+      rating: 9.0,
+      genres: ['Веб-поток', 'Синхронно'],
+      streamUrl: stream
+    };
+
+    if (onSelectMovie) {
+      onSelectMovie(generatedMovie);
     }
+    onClose();
+  };
+
+  const handleCustomStreamSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customStreamInput.trim()) return;
+    handlePlayCurrentAsMovie(customStreamInput.trim());
+    setCustomStreamModal(false);
   };
 
   const proxySrc = `/api/proxy-page?url=${encodeURIComponent(currentUrl)}`;
@@ -169,69 +209,97 @@ export const SharedBrowser: React.FC<SharedBrowserProps> = ({
 
           <button
             type="button"
-            onClick={() => {
-              setIsLoading(true);
-              if (iframeRef.current) {
-                iframeRef.current.src = proxySrc;
-              }
-            }}
-            className={`p-2 rounded-xl text-stone-400 hover:text-white hover:bg-stone-800 transition-colors ${isLoading ? 'animate-spin text-amber-400' : ''}`}
-            title="Обновить страницу"
+            onClick={() => handleNavigate(currentUrl)}
+            className="p-2 rounded-xl text-stone-400 hover:text-white hover:bg-stone-800 transition-colors"
+            title="Обновить"
           >
-            <RotateCw className="w-4 h-4" />
+            <RotateCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-amber-400' : ''}`} />
           </button>
         </div>
 
-        {/* Omnibox / Search & URL Input Bar */}
+        {/* Address Bar */}
         <form
           onSubmit={(e) => {
             e.preventDefault();
             handleNavigate(inputUrl);
           }}
-          className="flex-1 flex items-center bg-stone-950 border border-stone-800 rounded-2xl px-3 py-1.5 focus-within:border-amber-500/80 transition-all max-w-2xl"
+          className="flex-1 max-w-2xl relative flex items-center"
         >
-          <Search className="w-4 h-4 text-stone-500 mr-2 shrink-0" />
+          <div className="absolute left-3 text-stone-500 pointer-events-none flex items-center">
+            {currentUrl.startsWith('https') ? (
+              <Shield className="w-3.5 h-3.5 text-emerald-500 mr-1" />
+            ) : (
+              <Globe className="w-3.5 h-3.5 mr-1" />
+            )}
+          </div>
+
           <input
             type="text"
             value={inputUrl}
             onChange={(e) => setInputUrl(e.target.value)}
-            placeholder="Введите адрес сайта (lordfilm, kinogo, youtube) или поисковый запрос..."
-            className="w-full bg-transparent text-xs sm:text-sm text-stone-100 placeholder-stone-500 focus:outline-none truncate font-medium"
+            placeholder="Введите адрес сайта, ссылку на видео или фильм..."
+            className="w-full bg-stone-950/80 border border-stone-800 focus:border-amber-500 focus:ring-1 focus:ring-amber-500/50 rounded-2xl py-1.5 pl-8 pr-20 text-xs text-stone-200 placeholder-stone-500 outline-none transition-all"
           />
+
+          <div className="absolute right-1.5 flex items-center space-x-1">
+            <button
+              type="submit"
+              className="bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold px-3 py-1 rounded-xl text-[11px] shadow-sm transition-all"
+            >
+              Перейти
+            </button>
+          </div>
         </form>
 
-        {/* Sync Status & Close Button */}
-        <div className="flex items-center space-x-2 shrink-0">
-          <div className="hidden sm:flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-bold">
-            <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
-            <span>Экран транслируется: {controllerName}</span>
-          </div>
+        {/* Action Controls */}
+        <div className="flex items-center space-x-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={() => setCustomStreamModal(true)}
+            className="hidden sm:flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-amber-300 text-xs font-semibold border border-stone-700 transition-all"
+            title="Вставить прямую ссылку на видео"
+          >
+            <Link2 className="w-3.5 h-3.5" />
+            <span>Прямая ссылка</span>
+          </button>
 
-          {!isController && (
+          {onOpenSearch && (
             <button
               type="button"
-              onClick={handleTakeControl}
-              className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs shadow-md transition-all"
+              onClick={onOpenSearch}
+              className="hidden sm:flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 text-xs font-semibold border border-amber-500/30 transition-all"
+              title="Открыть каталог фильмов"
             >
-              Взять управление
+              <Film className="w-3.5 h-3.5" />
+              <span>Каталог</span>
             </button>
           )}
+
+          <a
+            href={currentUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="p-2 rounded-xl text-stone-400 hover:text-white hover:bg-stone-800 transition-colors"
+            title="Открыть во внешней вкладке"
+          >
+            <ExternalLink className="w-4 h-4" />
+          </a>
 
           <button
             type="button"
             onClick={onClose}
-            className="px-3 py-1.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 hover:text-white text-xs font-semibold transition-all"
+            className="px-3 py-1.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-bold transition-all"
           >
             Закрыть
           </button>
         </div>
       </div>
 
-      {/* Bookmarks / Quick Search Suggestions */}
-      <div className="bg-stone-950/80 border-b border-stone-800/60 px-3 py-1.5 flex items-center space-x-2 overflow-x-auto shrink-0 scrollbar-none">
+      {/* Quick Sites Bookmarks */}
+      <div className="bg-stone-950 border-b border-stone-800/80 px-3 py-1.5 flex items-center space-x-2 overflow-x-auto scrollbar-none">
         <span className="text-[10px] font-bold text-stone-500 uppercase tracking-wider shrink-0 flex items-center space-x-1">
-          <Compass className="w-3 h-3 text-amber-400" />
-          <span>Быстрый поиск:</span>
+          <Compass className="w-3 h-3 text-amber-500" />
+          <span>Быстрый выбор:</span>
         </span>
         {POPULAR_SITES.map((site) => (
           <button
@@ -241,19 +309,28 @@ export const SharedBrowser: React.FC<SharedBrowserProps> = ({
             className="px-2.5 py-1 rounded-lg bg-stone-900 hover:bg-stone-800 active:bg-amber-500/20 text-stone-300 hover:text-amber-400 border border-stone-800 text-[11px] font-medium shrink-0 flex items-center space-x-1 transition-all"
           >
             <span>{site.name}</span>
-            <span className="text-[9px] text-stone-500 font-normal">({site.badge})</span>
+            <span className="text-[9px] text-amber-400/80 font-normal">({site.badge})</span>
           </button>
         ))}
       </div>
 
-      {/* Mobile Live Presence Notice */}
-      <div className="sm:hidden bg-amber-500/10 border-b border-amber-500/20 px-3 py-1 text-[11px] text-amber-300 flex items-center justify-between">
-        <span className="flex items-center space-x-1.5">
-          <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
-          <span>Трансляция для всех гостей комнаты</span>
-        </span>
-        <span className="font-bold">{controllerName}</span>
-      </div>
+      {/* Video Detected Action Banner */}
+      {videoDetected && (
+        <div className="bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 p-2.5 text-stone-950 flex items-center justify-between shadow-lg animate-fadeIn">
+          <div className="flex items-center space-x-2 text-xs font-black">
+            <Film className="w-4 h-4" />
+            <span>На странице найден фильм/видеоплеер!</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => handlePlayCurrentAsMovie()}
+            className="bg-stone-950 hover:bg-stone-900 text-amber-400 font-bold px-3.5 py-1 rounded-xl text-xs shadow-md flex items-center space-x-1.5 transition-all"
+          >
+            <Play className="w-3.5 h-3.5 fill-amber-400" />
+            <span>Запустить в плеере для всех</span>
+          </button>
+        </div>
+      )}
 
       {/* Main Shared Webview Frame */}
       <div className="flex-1 relative bg-stone-900">
@@ -275,6 +352,46 @@ export const SharedBrowser: React.FC<SharedBrowserProps> = ({
           </div>
         )}
       </div>
+
+      {/* Direct Custom Stream Modal */}
+      {customStreamModal && (
+        <div className="absolute inset-0 z-50 bg-stone-950/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-stone-900 border border-stone-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center space-x-2 text-amber-400">
+              <Link2 className="w-5 h-5" />
+              <h3 className="text-base font-bold text-white">Вставить ссылку на видео/фильм</h3>
+            </div>
+            <p className="text-xs text-stone-400 leading-relaxed">
+              Поддерживаются: YouTube ссылки, прямые видеопотоки (.mp4, .m3u8), ссылки на плееры Kinogo, Lordfilm и любые онлайн-кинотеатры.
+            </p>
+            <form onSubmit={handleCustomStreamSubmit} className="space-y-3">
+              <input
+                type="text"
+                value={customStreamInput}
+                onChange={(e) => setCustomStreamInput(e.target.value)}
+                placeholder="https://... (например YouTube, mp4 или m3u8 поток)"
+                className="w-full bg-stone-950 border border-stone-800 rounded-2xl p-3 text-xs text-stone-100 placeholder-stone-500 outline-none focus:border-amber-500"
+                autoFocus
+              />
+              <div className="flex items-center justify-end space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setCustomStreamModal(false)}
+                  className="px-4 py-2 rounded-xl bg-stone-800 text-stone-300 text-xs font-semibold hover:bg-stone-700 transition-all"
+                >
+                  Отмена
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl bg-amber-500 text-stone-950 text-xs font-bold hover:bg-amber-400 transition-all"
+                >
+                  Запустить в комнате
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
     </div>
   );
