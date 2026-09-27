@@ -5,28 +5,6 @@ export interface User {
   isHost?: boolean;
   isMuted?: boolean;
   isVideoOn?: boolean;
-  isSpeaking?: boolean;
-}
-
-export interface MovieEpisode {
-  season: number;
-  episode: number;
-  title: string;
-  streamUrl: string;
-}
-
-export interface Movie {
-  id: string;
-  title: string;
-  originalTitle?: string;
-  year?: number;
-  poster?: string;
-  description?: string;
-  rating?: number;
-  genres?: string[];
-  streamUrl: string;
-  sourceSite?: string;
-  episodes?: MovieEpisode[];
 }
 
 export interface ChatMessage {
@@ -37,23 +15,28 @@ export interface ChatMessage {
   timestamp: number;
 }
 
-export interface SharedBrowserState {
-  isActive: boolean;
-  currentUrl: string;
-  controllerId: string;
-  controllerName: string;
-  lastScrollY?: number;
+export interface MovieItem {
+  id: string;
+  title: string;
+  year?: number;
+  poster: string;
+  rating?: number;
+  genres?: string[];
+  description?: string;
+  streamUrl: string;
+  sourceSite?: string;
 }
 
 export interface RoomState {
   roomId: string;
   hostId: string;
-  movie: Movie | null;
-  isPlaying: boolean;
-  currentTime: number;
-  playbackRate: number;
   users: User[];
   chat: ChatMessage[];
+  currentMovie: MovieItem | null;
+  isPlaying: boolean;
+  currentTime: number;
+  currentSite: string; // 'lordfilm' | 'kinogo' | 'youtube' | 'custom'
+  searchQuery: string;
+  activeView: 'browser' | 'player'; // directly controlled by users
   lastUpdated: number;
-  sharedBrowser?: SharedBrowserState;
 }
