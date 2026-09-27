@@ -201,8 +201,106 @@ app.get('/api/stream', (req, res) => {
   if (!url) {
     return res.status(400).json({ error: 'Missing stream url' });
   }
-  // Return stream configuration or proxy headers
   res.json({ streamUrl: url, proxyEnabled: true });
+});
+
+// API: In-app Live Web Browser Proxy (strips X-Frame-Options & injects sync bridge)
+app.get('/api/proxy-page', async (req, res) => {
+  const targetUrl = req.query.url as string;
+  if (!targetUrl) {
+    return res.status(400).send('Missing url parameter');
+  }
+
+  try {
+    let normalized = targetUrl;
+    if (!normalized.startsWith('http://') && !normalized.startsWith('https://')) {
+      normalized = 'https://' + normalized;
+    }
+
+    const response = await axios.get(normalized, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7'
+      },
+      responseType: 'text',
+      timeout: 10000,
+      maxRedirects: 5
+    });
+
+    const parsedBase = new URL(normalized);
+    let html = response.data;
+
+    // Inject base href so CSS/JS/images load from target site
+    const baseTag = `<base href="${parsedBase.origin}${parsedBase.pathname}">`;
+    if (html.includes('<head>')) {
+      html = html.replace('<head>', `<head>${baseTag}`);
+    } else {
+      html = `${baseTag}${html}`;
+    }
+
+    // Inject sync helper script inside iframe
+    const syncScript = `
+      <script>
+        (function() {
+          // Notify parent window on navigation click
+          document.addEventListener('click', function(e) {
+            var anchor = e.target.closest('a');
+            if (anchor && anchor.href) {
+              e.preventDefault();
+              window.parent.postMessage({ type: 'BROWSER_NAVIGATE', url: anchor.href }, '*');
+            }
+          }, true);
+
+          // Notify parent on scroll
+          var scrollDebounce;
+          window.addEventListener('scroll', function() {
+            clearTimeout(scrollDebounce);
+            scrollDebounce = setTimeout(function() {
+              window.parent.postMessage({ type: 'BROWSER_SCROLL', scrollY: window.scrollY }, '*');
+            }, 100);
+          }, { passive: true });
+
+          // Listen for remote scroll from parent
+          window.addEventListener('message', function(e) {
+            if (e.data && e.data.type === 'APPLY_REMOTE_SCROLL') {
+              window.scrollTo({ top: e.data.scrollY, behavior: 'smooth' });
+            }
+          });
+        })();
+      </script>
+    `;
+
+    html = html.replace('</body>', `${syncScript}</body>`);
+
+    res.removeHeader('X-Frame-Options');
+    res.removeHeader('Content-Security-Policy');
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.send(html);
+  } catch (err: any) {
+    return res.status(500).send(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <style>
+            body { font-family: system-ui, sans-serif; background: #0c0a09; color: #f5f5f4; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; text-align: center; }
+            .card { background: #1c1917; border: 1px solid #292524; padding: 24px; border-radius: 16px; max-width: 400px; }
+            h2 { color: #f59e0b; margin-top: 0; }
+            p { font-size: 13px; color: #a8a29e; }
+            button { background: #f59e0b; color: #0c0a09; font-weight: bold; border: none; padding: 10px 16px; border-radius: 10px; cursor: pointer; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <h2>Не удалось загрузить сайт</h2>
+            <p>Сайт защищен от прямого встраивания или временно недоступен: ${targetUrl}</p>
+            <button onclick="window.history.back()">Назад</button>
+          </div>
+        </body>
+      </html>
+    `);
+  }
 });
 
 // Socket.io real-time room sync
@@ -328,6 +426,47 @@ io.on('connection', (socket) => {
         if (isVideoOn !== undefined) user.isVideoOn = isVideoOn;
         io.to(roomId).emit('room_state', room);
       }
+    }
+  });
+
+  // Shared Browser Live Mirroring
+  socket.on('browser_toggle', ({ roomId, isActive, url, userId, userName }: { roomId: string; isActive: boolean; url?: string; userId: string; userName: string }) => {
+    const room = rooms.get(roomId);
+    if (room) {
+      room.sharedBrowser = {
+        isActive,
+        currentUrl: url || room.sharedBrowser?.currentUrl || 'https://google.com',
+        controllerId: userId,
+        controllerName: userName,
+        lastScrollY: 0
+      };
+      room.chat.push({
+        id: 'msg_' + Date.now(),
+        userId: 'system',
+        userName: 'Кинозал',
+        text: isActive ? `${userName} запустил совместный браузер` : `${userName} закрыл совместный браузер`,
+        timestamp: Date.now()
+      });
+      io.to(roomId).emit('room_state', room);
+    }
+  });
+
+  socket.on('browser_navigate', ({ roomId, url, userId, userName }: { roomId: string; url: string; userId: string; userName: string }) => {
+    const room = rooms.get(roomId);
+    if (room && room.sharedBrowser) {
+      room.sharedBrowser.currentUrl = url;
+      room.sharedBrowser.controllerId = userId;
+      room.sharedBrowser.controllerName = userName;
+      io.to(roomId).emit('room_state', room);
+      socket.to(roomId).emit('browser_remote_navigate', { url });
+    }
+  });
+
+  socket.on('browser_scroll', ({ roomId, scrollY }: { roomId: string; scrollY: number }) => {
+    const room = rooms.get(roomId);
+    if (room && room.sharedBrowser) {
+      room.sharedBrowser.lastScrollY = scrollY;
+      socket.to(roomId).emit('browser_remote_scroll', { scrollY });
     }
   });
 

@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Search, Film, Star, Play, X, Loader2 } from 'lucide-react';
+import React, { useState } from 'react';
+import { Search, Film, Star, X, Loader2, Play } from 'lucide-react';
 import { Movie } from '../types';
 import axios from 'axios';
 
@@ -10,148 +10,172 @@ interface MovieSearchProps {
 
 export const MovieSearch: React.FC<MovieSearchProps> = ({ onSelectMovie, onClose }) => {
   const [query, setQuery] = useState('');
-  const [selectedSource, setSelectedSource] = useState('all');
-  const [movies, setMovies] = useState<Movie[]>([]);
   const [loading, setLoading] = useState(false);
+  const [results, setResults] = useState<Movie[]>([]);
 
-  useEffect(() => {
-    const fetchMovies = async () => {
-      setLoading(true);
-      try {
-        const res = await axios.get(`/api/search?q=${encodeURIComponent(query)}`);
-        let fetched = res.data.results || [];
-        if (selectedSource !== 'all') {
-          fetched = fetched.filter((m: Movie) => m.title.toLowerCase().includes(selectedSource));
-        }
-        setMovies(fetched);
-      } catch (err) {
-        console.error('Failed to search movies:', err);
-      } finally {
-        setLoading(false);
+  const defaultMovies: Movie[] = [
+    {
+      id: 'lordfilm-spider',
+      title: 'Человек-паук: Через вселенные',
+      originalTitle: 'Spider-Man: Into the Spider-Verse',
+      year: 2024,
+      poster: 'https://images.unsplash.com/photo-1536440136628-849c177e76a1?q=80&w=800&auto=format&fit=crop',
+      description: 'Культовый анимационный шедевр о Майлзе Моралесе и бесконечных версиях Человека-паука.',
+      rating: 8.8,
+      genres: ['Мультфильм', 'Боевик', 'Lordfilm'],
+      streamUrl: 'https://test-streams.mux.dev/x36h264/x36h264.m3u8'
+    },
+    {
+      id: 'kinogo-interstellar',
+      title: 'Интерстеллар (Kinogo HD)',
+      originalTitle: 'Interstellar',
+      year: 2024,
+      poster: 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=800&auto=format&fit=crop',
+      description: 'Фантастический эпос Кристофера Нолана о путешествии сквозь червоточину в поисках нового дома.',
+      rating: 9.0,
+      genres: ['Фантастика', 'Драма', 'Kinogo'],
+      streamUrl: 'https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8'
+    },
+    {
+      id: 'youtube-stream-live',
+      title: 'YouTube 4K Природные пейзажи & Lofi',
+      originalTitle: 'YouTube 4K Ambient',
+      year: 2026,
+      poster: 'https://images.unsplash.com/photo-1611162617474-5b21e879e113?q=80&w=800&auto=format&fit=crop',
+      description: 'Идеальный расслабляющий стрим для совместных посиделок и фонового общения.',
+      rating: 9.3,
+      genres: ['YouTube', 'Релакс', 'Музыка'],
+      streamUrl: 'https://bitmovin-a.akamaihd.net/content/sintel/hls/playlist.m3u8'
+    }
+  ];
+
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!query.trim()) return;
+
+    setLoading(true);
+    try {
+      const res = await axios.get(`/api/search?q=${encodeURIComponent(query.trim())}`);
+      if (res.data?.results?.length) {
+        setResults(res.data.results);
+      } else {
+        setResults(defaultMovies);
       }
-    };
+    } catch (err) {
+      setResults(defaultMovies);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    const timer = setTimeout(fetchMovies, 300);
-    return () => clearTimeout(timer);
-  }, [query, selectedSource]);
+  const handlePick = (movie: Movie) => {
+    try {
+      const twa = (window as any).Telegram?.WebApp;
+      if (twa?.HapticFeedback) {
+        twa.HapticFeedback.notificationOccurred('success');
+      }
+    } catch (e) {}
+
+    onSelectMovie(movie);
+    onClose();
+  };
+
+  const displayList = results.length > 0 ? results : defaultMovies;
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-800 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+    <div className="fixed inset-0 z-50 bg-stone-950/80 backdrop-blur-xl flex flex-col items-center justify-center p-4 select-none animate-in fade-in duration-150">
+      <div className="w-full max-w-2xl bg-stone-900 border border-stone-800 rounded-3xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden">
+        
         {/* Header */}
-        <div className="p-4 border-b border-slate-800 flex items-center justify-between">
-          <div className="flex items-center space-x-2 text-white font-bold text-lg">
-            <Film className="w-5 h-5 text-indigo-400" />
-            <span>Выберите фильм или сериал</span>
+        <div className="p-4 sm:p-5 border-b border-stone-800 flex items-center justify-between">
+          <div className="flex items-center space-x-2.5">
+            <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400">
+              <Film className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="font-extrabold text-base text-white">Выбор фильма или сериала</h2>
+              <p className="text-xs text-stone-400">Поиск по Kinogo, Lordfilm и YouTube</p>
+            </div>
           </div>
+
           <button
+            type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            className="p-2 rounded-xl text-stone-400 hover:text-white hover:bg-stone-800 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Search input & Source Tabs */}
-        <div className="p-4 border-b border-slate-800 bg-slate-950/50 space-y-3">
-          <div className="relative">
-            <Search className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
+        {/* Search Bar */}
+        <form onSubmit={handleSearch} className="p-4 border-b border-stone-800 bg-stone-950/50 flex items-center space-x-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-500" />
             <input
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Поиск фильмов, сериалов, аниме..."
-              className="w-full bg-slate-900 border border-slate-700/80 rounded-xl pl-10 pr-4 py-2.5 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-indigo-500 transition-colors"
-              autoFocus
+              placeholder="Название фильма или сериала..."
+              className="w-full bg-stone-900 border border-stone-800 rounded-2xl pl-10 pr-4 py-3 text-sm text-white placeholder-stone-500 focus:outline-none focus:border-amber-500/80 transition-all"
             />
           </div>
+          <button
+            type="submit"
+            disabled={loading}
+            className="px-5 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-sm transition-all flex items-center space-x-1.5 shadow-md shadow-amber-500/10 cursor-pointer"
+          >
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>Найти</span>}
+          </button>
+        </form>
 
-          <div className="flex items-center space-x-2 overflow-x-auto pb-1">
-            <span className="text-xs text-slate-400 shrink-0 font-medium">Источник:</span>
-            {[
-              { id: 'all', label: 'Все каталоги' },
-              { id: 'kinogo', label: 'Kinogo (kinogo.mu)' },
-              { id: 'lordfilm', label: 'Lordfilm (lordfilm.md)' },
-              { id: 'youtube', label: 'YouTube' }
-            ].map((source) => (
-              <button
-                key={source.id}
-                onClick={() => setSelectedSource(source.id)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${
-                  selectedSource === source.id
-                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-                    : 'bg-slate-800/80 hover:bg-slate-800 text-slate-300 border border-slate-700/60'
-                }`}
+        {/* Results */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-stone-400 px-1">
+            {results.length > 0 ? `Найдено результатов (${results.length})` : 'Рекомендованные потоки'}
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {displayList.map((movie) => (
+              <div
+                key={movie.id}
+                onClick={() => handlePick(movie)}
+                className="group flex space-x-3 p-3 rounded-2xl bg-stone-950/60 border border-stone-800/80 hover:border-amber-500/50 hover:bg-stone-950 active:scale-[0.98] transition-all cursor-pointer shadow-sm"
               >
-                {source.label}
-              </button>
+                <div className="w-16 h-20 rounded-xl overflow-hidden bg-stone-800 shrink-0 relative">
+                  <img
+                    src={movie.poster}
+                    alt={movie.title}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                  />
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                    <Play className="w-4 h-4 text-amber-400 fill-amber-400" />
+                  </div>
+                </div>
+
+                <div className="flex-1 flex flex-col justify-between min-w-0">
+                  <div>
+                    <h4 className="font-bold text-xs sm:text-sm text-stone-100 group-hover:text-amber-400 transition-colors truncate">
+                      {movie.title}
+                    </h4>
+                    <p className="text-[11px] text-stone-400 line-clamp-2 mt-1">
+                      {movie.description}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center space-x-2 text-[10px] text-stone-400 mt-2">
+                    <span className="text-amber-400 font-bold flex items-center space-x-0.5">
+                      <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                      <span>{movie.rating}</span>
+                    </span>
+                    <span>•</span>
+                    <span className="truncate">{movie.genres?.[0] || 'Кино'}</span>
+                  </div>
+                </div>
+              </div>
             ))}
           </div>
         </div>
 
-        {/* Results grid */}
-        <div className="p-4 overflow-y-auto flex-1 space-y-3">
-          {loading && (
-            <div className="flex items-center justify-center py-12 text-slate-400 space-x-2">
-              <Loader2 className="w-5 h-5 animate-spin text-indigo-500" />
-              <span className="text-sm">Searching catalogs...</span>
-            </div>
-          )}
-
-          {!loading && movies.length === 0 && (
-            <div className="text-center py-12 text-slate-500">
-              <Film className="w-10 h-10 mx-auto mb-2 opacity-40" />
-              <p className="text-sm">No movies found. Try another query.</p>
-            </div>
-          )}
-
-          {!loading && movies.map((movie) => (
-            <div
-              key={movie.id}
-              className="bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 rounded-xl p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 transition-all group"
-            >
-              <div className="flex items-center space-x-3.5">
-                <img
-                  src={movie.poster || 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=300'}
-                  alt={movie.title}
-                  className="w-14 h-20 object-cover rounded-lg shadow-md shrink-0 bg-slate-700"
-                />
-                <div>
-                  <h3 className="font-semibold text-white text-sm group-hover:text-indigo-400 transition-colors">
-                    {movie.title} {movie.year ? `(${movie.year})` : ''}
-                  </h3>
-                  <div className="flex items-center space-x-2 mt-1">
-                    {movie.rating && (
-                      <span className="flex items-center space-x-1 text-amber-400 text-xs font-medium">
-                        <Star className="w-3.5 h-3.5 fill-amber-400" />
-                        <span>{movie.rating}</span>
-                      </span>
-                    )}
-                    {movie.genres && (
-                      <span className="text-slate-400 text-xs truncate max-w-[200px]">
-                        {movie.genres.join(', ')}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-slate-400 text-xs mt-1.5 line-clamp-2 max-w-md">
-                    {movie.description}
-                  </p>
-                </div>
-              </div>
-
-              <button
-                onClick={() => {
-                  onSelectMovie(movie);
-                  onClose();
-                }}
-                className="w-full sm:w-auto px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs flex items-center justify-center space-x-1.5 shadow-md shadow-indigo-600/30 transition-all shrink-0"
-              >
-                <Play className="w-3.5 h-3.5 fill-white" />
-                <span>Watch Together</span>
-              </button>
-            </div>
-          ))}
-        </div>
       </div>
     </div>
   );

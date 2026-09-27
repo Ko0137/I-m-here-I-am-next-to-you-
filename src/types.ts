@@ -8,6 +8,13 @@ export interface User {
   isSpeaking?: boolean;
 }
 
+export interface MovieEpisode {
+  season: number;
+  episode: number;
+  title: string;
+  streamUrl: string;
+}
+
 export interface Movie {
   id: string;
   title: string;
@@ -18,7 +25,8 @@ export interface Movie {
   rating?: number;
   genres?: string[];
   streamUrl: string;
-  episodes?: { season: number; episode: number; title: string; streamUrl: string }[];
+  sourceSite?: string;
+  episodes?: MovieEpisode[];
 }
 
 export interface ChatMessage {
@@ -27,6 +35,14 @@ export interface ChatMessage {
   userName: string;
   text: string;
   timestamp: number;
+}
+
+export interface SharedBrowserState {
+  isActive: boolean;
+  currentUrl: string;
+  controllerId: string;
+  controllerName: string;
+  lastScrollY?: number;
 }
 
 export interface RoomState {
@@ -39,4 +55,5 @@ export interface RoomState {
   users: User[];
   chat: ChatMessage[];
   lastUpdated: number;
+  sharedBrowser?: SharedBrowserState;
 }

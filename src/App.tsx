@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { socketService } from './services/socket';
 import { User, RoomState, Movie } from './types';
 import { Header } from './components/Header';
@@ -6,34 +6,38 @@ import { Home } from './components/Home';
 import { VideoPlayer } from './components/VideoPlayer';
 import { MovieSearch } from './components/MovieSearch';
 import { ChatPanel } from './components/ChatPanel';
+import { SharedBrowser } from './components/SharedBrowser';
+import { appEventBus, useTelegramSDK, useEventBusListener } from './services/eventBus';
 import axios from 'axios';
 
 const DEFAULT_MOVIE: Movie = {
-  id: 'kinogo-hub',
+  id: 'kinogo-featured',
   title: 'Kinogo Каталог (kinogo.mu)',
-  originalTitle: 'Kinogo HD Library',
+  originalTitle: 'Kinogo HD Cinema',
   year: 2026,
-  poster: 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=800&auto=format&fit=crop',
-  description: 'Совместный просмотр новейших фильмов и сериалов из каталога Kinogo. Синхронизация для всех участников.',
-  rating: 8.8,
-  genres: ['Кинотеатр', 'Премьеры', 'HD'],
+  poster: 'https://images.unsplash.com/photo-1536440136628-849c177e76a1?q=80&w=800&auto=format&fit=crop',
+  description: 'Горячие премьеры фильмов и сериалов из базы Kinogo. Синхронное воспроизведение 1080p для всех друзей.',
+  rating: 8.9,
+  genres: ['Премьеры', 'Кинотеатр', 'Full HD'],
   streamUrl: 'https://test-streams.mux.dev/x36h264/x36h264.m3u8',
   episodes: [
-    { season: 1, episode: 1, title: 'Серия 1: Full HD 1080p', streamUrl: 'https://test-streams.mux.dev/x36h264/x36h264.m3u8' }
+    { season: 1, episode: 1, title: 'Серия 1: Премьерный показ 1080p', streamUrl: 'https://test-streams.mux.dev/x36h264/x36h264.m3u8' }
   ]
 };
 
 export default function App() {
+  const { triggerHaptic } = useTelegramSDK();
   const [user, setUser] = useState<User>({
     id: 'tg_' + Math.floor(Math.random() * 100000),
-    name: 'Telegram User'
+    name: 'Пользователь'
   });
   const [room, setRoom] = useState<RoomState | null>(null);
   const [socket, setSocket] = useState<any>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isBrowserActive, setIsBrowserActive] = useState(false);
 
-  // Centralized HapticFeedback controller & Event Delegation listener
+  // Initialize Telegram WebApp SDK directly
   useEffect(() => {
     const twa = (window as any).Telegram?.WebApp;
     if (twa) {
@@ -41,7 +45,7 @@ export default function App() {
         twa.ready();
         twa.expand();
         if (twa.setHeaderColor) {
-          twa.setHeaderColor('#0f172a');
+          twa.setHeaderColor('#0c0a09'); // Warm stone-950
         }
         
         if (twa.initDataUnsafe?.user) {
@@ -52,10 +56,8 @@ export default function App() {
             avatar: u.photo_url
           });
         }
-      } catch (err) {
-        // ignore
-      }
-      
+      } catch (e) {}
+
       if (twa.initData) {
         axios.post('/api/auth', { initData: twa.initData })
           .then((res) => {
@@ -63,7 +65,7 @@ export default function App() {
               const tgUser = res.data.user;
               setUser({
                 id: String(tgUser.id || 'tg_' + Math.floor(Math.random() * 10000)),
-                name: tgUser.first_name || tgUser.username || 'Telegram User',
+                name: tgUser.first_name || tgUser.username || 'Пользователь',
                 avatar: tgUser.photo_url
               });
             }
@@ -72,39 +74,46 @@ export default function App() {
       }
     }
 
+    // Connect socket
     const s = socketService.connect();
     setSocket(s);
 
     s.on('room_state', (updatedRoom: RoomState) => {
       setRoom(updatedRoom);
+      if (updatedRoom.sharedBrowser?.isActive !== undefined) {
+        setIsBrowserActive(updatedRoom.sharedBrowser.isActive);
+      }
     });
 
-    // Global Event Delegation & Centralized HapticFeedback
-    const handleGlobalClick = (e: MouseEvent | TouchEvent) => {
-      const target = (e.target as HTMLElement).closest('button, [role="button"], input, .group');
-      if (target) {
-        try {
-          const t = (window as any).Telegram?.WebApp;
-          if (t?.HapticFeedback) {
-            t.HapticFeedback.impactOccurred('medium');
-          }
-        } catch (err) {
-          // ignore
-        }
-      }
-    };
-
-    window.addEventListener('click', handleGlobalClick, { capture: true });
-    window.addEventListener('touchend', handleGlobalClick, { capture: true });
+    // Check URL parameters for direct room joining
+    const params = new URLSearchParams(window.location.search);
+    const roomParam = params.get('room');
+    if (roomParam) {
+      setTimeout(() => {
+        handleJoinRoom(roomParam.toUpperCase());
+      }, 200);
+    }
 
     return () => {
-      window.removeEventListener('click', handleGlobalClick, { capture: true });
-      window.removeEventListener('touchend', handleGlobalClick, { capture: true });
       socketService.disconnect();
     };
   }, []);
 
+  // Central Event Bus listeners replacing scattered DOM handlers
+  useEventBusListener('UI_INTERACT', useCallback(() => {
+    triggerHaptic('light');
+  }, [triggerHaptic]));
+
+  useEventBusListener('SUCCESS_FEEDBACK', useCallback(() => {
+    triggerHaptic('success');
+  }, [triggerHaptic]));
+
+  useEventBusListener('ERROR_FEEDBACK', useCallback(() => {
+    triggerHaptic('error');
+  }, [triggerHaptic]));
+
   const handleCreateRoom = (roomId: string, chosenMovie?: Movie) => {
+    triggerHaptic('medium');
     const selectedMovie = chosenMovie || DEFAULT_MOVIE;
     const initialUser: User = {
       ...user,
@@ -114,7 +123,7 @@ export default function App() {
       isSpeaking: false
     };
 
-    // Optimistic instant local room state so UI transitions immediately without network delay
+    // Instant optimistic transition (0ms latency)
     setRoom({
       roomId,
       hostId: initialUser.id,
@@ -126,11 +135,17 @@ export default function App() {
       chat: [{
         id: 'sys_' + Date.now(),
         userId: 'system',
-        userName: 'Система',
-        text: `Комната ${roomId} создана. Приятного просмотра!`,
+        userName: 'Кинозал',
+        text: `Комната #${roomId} открыта. Браузер и синхронизация активны!`,
         timestamp: Date.now()
       }],
-      lastUpdated: Date.now()
+      lastUpdated: Date.now(),
+      sharedBrowser: {
+        isActive: false,
+        currentUrl: 'https://google.com',
+        controllerId: initialUser.id,
+        controllerName: initialUser.name
+      }
     });
 
     if (socket) {
@@ -144,6 +159,7 @@ export default function App() {
   };
 
   const handleJoinRoom = (roomId: string) => {
+    triggerHaptic('medium');
     const initialUser: User = {
       ...user,
       isHost: false,
@@ -152,7 +168,6 @@ export default function App() {
       isSpeaking: false
     };
 
-    // Optimistic immediate entry
     setRoom({
       roomId,
       hostId: '',
@@ -164,8 +179,8 @@ export default function App() {
       chat: [{
         id: 'sys_' + Date.now(),
         userId: 'system',
-        userName: 'Система',
-        text: `Вход в комнату ${roomId}...`,
+        userName: 'Кинозал',
+        text: `Вход в комнату #${roomId}...`,
         timestamp: Date.now()
       }],
       lastUpdated: Date.now()
@@ -177,10 +192,41 @@ export default function App() {
   };
 
   const handleLeaveRoom = () => {
+    triggerHaptic('light');
     setRoom(null);
+    setIsBrowserActive(false);
+  };
+
+  const handleToggleBrowser = () => {
+    triggerHaptic('medium');
+    const nextState = !isBrowserActive;
+    setIsBrowserActive(nextState);
+
+    if (room) {
+      setRoom(prev => prev ? {
+        ...prev,
+        sharedBrowser: {
+          isActive: nextState,
+          currentUrl: prev.sharedBrowser?.currentUrl || 'https://google.com',
+          controllerId: user.id,
+          controllerName: user.name
+        }
+      } : null);
+    }
+
+    if (socket && room) {
+      socket.emit('browser_toggle', {
+        roomId: room.roomId,
+        isActive: nextState,
+        url: room.sharedBrowser?.currentUrl || 'https://google.com',
+        userId: user.id,
+        userName: user.name
+      });
+    }
   };
 
   const handleSelectMovie = (movie: Movie) => {
+    triggerHaptic('success');
     if (room) {
       setRoom({
         ...room,
@@ -195,6 +241,7 @@ export default function App() {
 
   const handleSendMessage = (text: string) => {
     if (!text.trim() || !room || !user) return;
+    triggerHaptic('light');
     const newMsg = {
       id: 'msg_' + Date.now(),
       userId: user.id,
@@ -202,8 +249,7 @@ export default function App() {
       text: text.trim(),
       timestamp: Date.now()
     };
-    
-    // Optimistic chat update
+
     setRoom(prev => prev ? { ...prev, chat: [...prev.chat, newMsg] } : null);
 
     if (socket) {
@@ -215,6 +261,7 @@ export default function App() {
   };
 
   const handleToggleMute = (isMuted: boolean) => {
+    triggerHaptic('light');
     if (room && user) {
       setRoom(prev => {
         if (!prev) return null;
@@ -230,6 +277,7 @@ export default function App() {
   };
 
   const handleToggleVideo = (isVideoOn: boolean) => {
+    triggerHaptic('light');
     if (room && user) {
       setRoom(prev => {
         if (!prev) return null;
@@ -245,33 +293,45 @@ export default function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-slate-950 font-sans">
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-stone-950 font-sans text-stone-100">
       <Header
         user={user}
         room={room}
         onLeaveRoom={handleLeaveRoom}
         onOpenSearch={() => setIsSearchOpen(true)}
+        isBrowserActive={isBrowserActive}
+        onToggleBrowser={room ? handleToggleBrowser : undefined}
       />
 
       <main className="flex-1 flex flex-col relative overflow-hidden">
         {!room ? (
           <Home
-            onCreateRoom={(roomId, movie) => {
-              handleCreateRoom(roomId, movie);
-            }}
+            onCreateRoom={handleCreateRoom}
             onJoinRoom={handleJoinRoom}
           />
         ) : (
           <div className="flex-1 flex relative overflow-hidden">
-            <VideoPlayer
-              room={room}
-              currentUser={user}
-              socket={socket}
-              onOpenChat={() => setIsChatOpen(!isChatOpen)}
-              onOpenSearch={() => setIsSearchOpen(true)}
-              onToggleMute={handleToggleMute}
-              onToggleVideo={handleToggleVideo}
-            />
+            {isBrowserActive ? (
+              <SharedBrowser
+                room={room}
+                currentUser={user}
+                socket={socket}
+                onClose={() => handleToggleBrowser()}
+              />
+            ) : (
+              <VideoPlayer
+                room={room}
+                currentUser={user}
+                socket={socket}
+                onOpenChat={() => setIsChatOpen(!isChatOpen)}
+                onOpenSearch={() => setIsSearchOpen(true)}
+                onToggleMute={handleToggleMute}
+                onToggleVideo={handleToggleVideo}
+                isChatOpen={isChatOpen}
+                isBrowserActive={isBrowserActive}
+                onToggleBrowser={handleToggleBrowser}
+              />
+            )}
 
             <ChatPanel
               messages={room.chat}

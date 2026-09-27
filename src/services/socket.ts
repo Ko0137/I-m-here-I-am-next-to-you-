@@ -3,10 +3,10 @@ import { io, Socket } from 'socket.io-client';
 class SocketService {
   private socket: Socket | null = null;
 
-  connect() {
+  connect(): Socket {
     if (!this.socket) {
-      const serverUrl = typeof window !== 'undefined' ? window.location.origin : undefined;
-      this.socket = io(serverUrl || '', {
+      const serverUrl = typeof window !== 'undefined' ? window.location.origin : '';
+      this.socket = io(serverUrl, {
         path: '/socket.io',
         transports: ['websocket', 'polling'],
         secure: true,
@@ -16,17 +16,17 @@ class SocketService {
       });
 
       this.socket.on('connect', () => {
-        console.log('Connected to CineSync Socket server:', this.socket?.id);
+        console.log('[KinoNear Socket] Connected, id:', this.socket?.id);
       });
 
       this.socket.on('disconnect', () => {
-        console.log('Disconnected from CineSync Socket server');
+        console.log('[KinoNear Socket] Disconnected');
       });
     }
     return this.socket;
   }
 
-  getSocket() {
+  getSocket(): Socket {
     if (!this.socket) {
       return this.connect();
     }
